@@ -51,7 +51,7 @@ export class MessageProcessor extends EventEmitter {
     // 2. Persist message immediately
     await this.storage.saveMessage(message);
 
-    // 3. If from owner, update state and cancel any active response buffers
+    // 3. If from owner, cancel any active debounce timer for this contact
     if (message.fromMe) {
       this.clearBuffer(message.contactId);
       return;

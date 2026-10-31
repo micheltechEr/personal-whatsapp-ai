@@ -51,7 +51,7 @@ Gere APENAS a resposta final curta (1 a 2 frases no máximo) para ser enviada no
   ): Promise<DecisionContract> {
     const isOwner = message.fromMe;
 
-    // H15: If message is from owner or owner just replied, no AI action needed
+    // H15: Se a mensagem em si veio do proprietário ou proprietário acabou de intervir na mesma janela
     if (isOwner || context.ownerSentManualReplyRecently) {
       return DecisionContractSchema.parse({
         message_id: message.id,

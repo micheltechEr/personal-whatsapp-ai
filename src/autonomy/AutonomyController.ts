@@ -22,7 +22,7 @@ export class AutonomyController {
       globalMode: 'AUTONOMOUS_CONTROLLED',
       minConfidenceThreshold: 50, // Responde autonomamente se >= 50%
       minReviewThreshold: 30, // Exige humano apenas se < 30%
-      maxDailyAutoRepliesDefault: 5,
+      maxDailyAutoRepliesDefault: Number(process.env.MAX_DAILY_AUTO_REPLIES) || 30,
       ...customConfig,
     };
   }
@@ -144,7 +144,7 @@ export class AutonomyController {
     }
 
     // 5. If original proposal was IGNORE, maintain IGNORE
-    if (proposal.decision === 'IGNORE') {
+    if (proposal.decision === 'IGNORE' && proposal.intent !== 'CASUAL_CONVERSATION' && proposal.intent !== 'QUESTION_SIMPLE') {
       return {
         allowedAction: 'IGNORE',
         passedSafety: true,
