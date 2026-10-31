@@ -123,6 +123,9 @@ export class WhatsAppGateway extends EventEmitter {
           const normalized = normalizeBaileysMessage(rawMsg);
           if (normalized) {
             this.lidMapping.set(normalized.contactId, jid);
+            if (rawMsg.key?.remoteJidAlt) {
+              this.lidMapping.set(normalized.contactId, rawMsg.key.remoteJidAlt);
+            }
             this.lidMapping.set(jid, jid);
             this.emit('message', normalized);
           }
@@ -180,12 +183,25 @@ export class WhatsAppGateway extends EventEmitter {
       throw new Error('WhatsApp gateway is not connected');
     }
 
-    const targetJid =
-      this.lidMapping.get(contactId) ||
-      (contactId.includes('@') ? contactId : `${contactId}@s.whatsapp.net`);
+    const cachedJid = this.lidMapping.get(contactId);
+    let targetJid = cachedJid || (contactId.includes('@') ? contactId : `${contactId}@s.whatsapp.net`);
 
-    console.log(`[WhatsAppGateway] Enviando mensagem para ${targetJid}: "${text}"`);
-    const result = await this.socket.sendMessage(targetJid, { text });
-    return result?.key.id || `sent-${Date.now()}`;
+    console.log(`[WhatsAppGateway] Tentando envio para ${targetJid}: "${text}"`);
+    let result: any;
+
+    try {
+      result = await this.socket.sendMessage(targetJid, { text });
+    } catch (primaryErr) {
+      // Se falhou no JID principal (ex: @lid) e o contato tem formato de telefone, tenta o fallback @s.whatsapp.net
+      if (targetJid.includes('@lid') && /^\d+$/.test(contactId)) {
+        const fallbackJid = `${contactId}@s.whatsapp.net`;
+        console.warn(`[WhatsAppGateway] Falha enviando para LID ${targetJid}, tentando fallback ${fallbackJid}...`);
+        result = await this.socket.sendMessage(fallbackJid, { text });
+      } else {
+        throw primaryErr;
+      }
+    }
+
+    return result?.key?.id || `sent-${Date.now()}`;
   }
 }

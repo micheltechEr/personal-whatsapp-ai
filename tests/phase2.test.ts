@@ -107,7 +107,7 @@ describe('Phase 2 - Intelligence Engines', () => {
       const incomingMsg: NormalizedMessage = {
         id: 'lead-msg-1',
         contactId,
-        content: 'Valeu!',
+        content: 'Opa, e agora?',
         timestamp: Date.now(),
         fromMe: false,
         isGroup: false,

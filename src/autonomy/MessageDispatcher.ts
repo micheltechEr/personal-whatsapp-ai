@@ -42,10 +42,10 @@ export class MessageDispatcher {
     // 2. Loop Protection & Minimum Interval Check
     const now = Date.now();
     const lastSentForContact = this.recentDispatches.get(contactId) || 0;
-    if (now - lastSentForContact < this.config.minIntervalBetweenRepliesMs) {
+    if (now - lastSentForContact < 1000) { // Reduzido para 1s
       return {
         sent: false,
-        reason: `Proteção contra loop ativa: intervalo mínimo (${this.config.minIntervalBetweenRepliesMs}ms) não atingido.`,
+        reason: `Proteção contra loop ativa: intervalo mínimo não atingido.`,
       };
     }
 

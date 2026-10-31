@@ -51,9 +51,9 @@ export class ContextEngine {
     const isOwnerLastSender = recent.length > 0 && recent[recent.length - 1].fromMe;
 
     // Check if owner sent a manual reply AFTER the latest message from the contact
-    // Apenas considera se o proprietário tiver digitado MANUALMENTE (não via bot) nos últimos 2 minutos após a mensagem do contato
+    // Apenas se o proprietário digitou MANUALMENTE após a última mensagem do contato nos últimos 60 segundos
     let ownerSentManualReplyRecently = false;
-    const twoMinutesAgo = Date.now() - 2 * 60 * 1000;
+    const sixtySecondsAgo = Date.now() - 60 * 1000;
     if (recent.length > 0) {
       const lastContactMsg = [...recent].reverse().find((m) => !m.fromMe);
       const lastOwnerMsg = [...recent].reverse().find((m) => m.fromMe);
@@ -61,7 +61,7 @@ export class ContextEngine {
         lastContactMsg &&
         lastOwnerMsg &&
         lastOwnerMsg.timestamp > lastContactMsg.timestamp &&
-        lastOwnerMsg.timestamp > twoMinutesAgo
+        lastOwnerMsg.timestamp > sixtySecondsAgo
       ) {
         ownerSentManualReplyRecently = true;
       }

@@ -37,7 +37,7 @@ export class MessageProcessor extends EventEmitter {
   ) {
     super();
     this.config = {
-      bufferWindowMs: 800, // Janela curta de 800ms para mensagens rápidas
+      bufferWindowMs: 400, // Janela rápida de 400ms para mensagens consecutivas
       ...customConfig,
     };
   }
@@ -58,17 +58,18 @@ export class MessageProcessor extends EventEmitter {
     }
 
     // 4. Consecutive grouping window (H02)
+    const windowMs = this.config.bufferWindowMs;
     const existing = this.messageBuffer.get(message.contactId);
     if (existing) {
       clearTimeout(existing.timer);
       existing.messages.push(message);
       existing.timer = setTimeout(() => {
         this.processBatch(message.contactId).catch(console.error);
-      }, this.config.bufferWindowMs);
+      }, windowMs);
     } else {
       const timer = setTimeout(() => {
         this.processBatch(message.contactId).catch(console.error);
-      }, this.config.bufferWindowMs);
+      }, windowMs);
 
       this.messageBuffer.set(message.contactId, {
         timer,
