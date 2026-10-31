@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment variables & secrets
+.env
+.env.local
+.env.*.local
+
+# WhatsApp session credentials & sensitive local data
+.baileys_auth/
+.data/
+*.tmp
+*.log
+
+# Build output
+dist/
+
+# Test coverage & scratch
+coverage/
+.test_*

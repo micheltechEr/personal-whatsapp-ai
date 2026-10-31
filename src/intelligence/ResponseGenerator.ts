@@ -1,0 +1,253 @@
+import { AgnosticLLMClient, LLMClientConfig } from './AgnosticLLMClient.js';
+import { HybridHeuristicInterpreter } from './HybridHeuristicInterpreter.js';
+import {
+  DecisionContract,
+  DecisionContractSchema,
+  ConfidenceScores,
+  NormalizedMessage,
+  DecisionType,
+} from '../types/index.js';
+import { ConversationContext } from './ContextEngine.js';
+import { RiskAnalysis } from './RiskEngine.js';
+import { IntentAnalysis } from './IntentClassifier.js';
+import { PersonalityEngine } from './PersonalityEngine.js';
+
+export class ResponseGenerator {
+  private llmClient: AgnosticLLMClient;
+
+  constructor(
+    private personalityEngine: PersonalityEngine,
+    config?: LLMClientConfig,
+    private hybridInterpreter?: HybridHeuristicInterpreter
+  ) {
+    this.llmClient = new AgnosticLLMClient(config);
+  }
+
+  private async generateWithLLM(
+    messageText: string,
+    contextSummary: string,
+    relationship: string
+  ): Promise<string | null> {
+    const systemPrompt = `Você é o assistente pessoal de comunicação do proprietário no WhatsApp.
+O objetivo é responder mensagens cotidianas com extrema fidelidade ao estilo do proprietário:
+- Tom: direto, conciso, natural, sem formalismo exagerado ou robótico.
+- Proibido usar jargões corporativos de IA (ex: "espero que esta mensagem o encontre bem", "como assistente de IA", "certamente!").
+- Relação com interlocutor: ${relationship}
+- Contexto recente da conversa: ${contextSummary || 'Início de conversa'}
+
+Gere APENAS a resposta final curta (1 a 2 frases no máximo) para ser enviada no WhatsApp. Sem aspas adicionais.`;
+
+    return this.llmClient.complete([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: messageText },
+    ]);
+  }
+
+  public async generateDecision(
+    message: NormalizedMessage,
+    context: ConversationContext,
+    risk: RiskAnalysis,
+    intent: IntentAnalysis
+  ): Promise<DecisionContract> {
+    const isOwner = message.fromMe;
+
+    // H15: If message is from owner or owner just replied, no AI action needed
+    if (isOwner || context.ownerSentManualReplyRecently) {
+      return DecisionContractSchema.parse({
+        message_id: message.id,
+        contact_id: message.contactId,
+        intent: 'OWNER_ACTIVITY_DETECTED',
+        risk_level: risk.riskLevel,
+        decision: 'IGNORE',
+        confidence: { intent: 99, context: 99, factual: 99, response: 99 },
+        context_summary: 'Proprietário interagiu diretamente na conversa.',
+        reason: 'H15: Proprietário já respondeu manualmente ou é autor da mensagem.',
+        suggested_response: '',
+        safety_flags: [],
+        requires_human: false,
+        memory_candidates: [],
+        operational_action: 'IGNORAR',
+      });
+    }
+
+    // H03: Intelligent silence
+    if (!intent.requiresResponse) {
+      return DecisionContractSchema.parse({
+        message_id: message.id,
+        contact_id: message.contactId,
+        intent: intent.intent,
+        risk_level: risk.riskLevel,
+        decision: 'IGNORE',
+        confidence: {
+          intent: intent.confidence,
+          context: context.contextConfidence,
+          factual: 98,
+          response: 95,
+        },
+        context_summary: context.recentSummary,
+        reason: 'H03: Mensagem não exige resposta (agradecimento conclusivo, confirmação ou mídia sem texto).',
+        suggested_response: '',
+        safety_flags: risk.safetyFlags,
+        requires_human: false,
+        memory_candidates: [],
+        operational_action: intent.operationalAction,
+      });
+    }
+
+    // Level 0 or 1 baseline
+    let suggested = '';
+    let factualConfidence = 95;
+    let responseConfidence = 94;
+    let decision: DecisionType = 'AUTO_REPLY';
+    let reason = 'Mensagem de baixo risco elegível para resposta autônoma.';
+
+    // Hybrid keyword search interpretation
+    let hybridBoost = 0;
+    const safetyFlags = [...risk.safetyFlags];
+    let hybridReason = '';
+
+    if (this.hybridInterpreter) {
+      const hybridRes = await this.hybridInterpreter.interpret(message.content);
+      hybridBoost = hybridRes.confidenceBoost;
+      if (hybridRes.flags.length > 0) {
+        safetyFlags.push(...hybridRes.flags);
+      }
+      if (hybridRes.reasons.length > 0) {
+        hybridReason = ` | Heurística híbrida: ${hybridRes.reasons.join('; ')}`;
+      }
+
+      if (hybridRes.suggestedAction === 'HUMAN_ONLY') {
+        return DecisionContractSchema.parse({
+          message_id: message.id,
+          contact_id: message.contactId,
+          intent: intent.intent,
+          risk_level: 3,
+          decision: 'HUMAN_ONLY',
+          confidence: { intent: intent.confidence, context: context.contextConfidence, factual: 90, response: 30 },
+          context_summary: context.recentSummary,
+          reason: `Bloqueio por regra de palavras: ${hybridRes.reasons.join('; ')}`,
+          suggested_response: '',
+          safety_flags: safetyFlags,
+          requires_human: true,
+          memory_candidates: [],
+          operational_action: intent.operationalAction,
+        });
+      }
+
+      if (hybridRes.suggestedAction === 'REVIEW_REQUIRED' && risk.riskLevel < 2) {
+        decision = 'REVIEW_REQUIRED';
+        reason = `Palavra-chave cadastrada exige revisão humana: ${hybridRes.reasons.join('; ')}`;
+      }
+    }
+
+    // High Risk (Level 3) -> STRICT HUMAN ONLY
+    if (risk.riskLevel === 3) {
+      return DecisionContractSchema.parse({
+        message_id: message.id,
+        contact_id: message.contactId,
+        intent: intent.intent,
+        risk_level: 3,
+        decision: 'HUMAN_ONLY',
+        confidence: {
+          intent: intent.confidence,
+          context: context.contextConfidence,
+          factual: 95,
+          response: 50,
+        },
+        context_summary: context.recentSummary,
+        reason: risk.reasons.join('; '),
+        suggested_response: '',
+        safety_flags: risk.safetyFlags,
+        requires_human: true,
+        memory_candidates: [],
+        operational_action: intent.operationalAction,
+      });
+    }
+
+    // Moderate Risk (Level 2) -> REVIEW REQUIRED
+    if (risk.riskLevel === 2) {
+      const suggested = `Oi! Recebi aqui. Vou verificar minha agenda/detalhes e te retorno em breve, combinado?`;
+      return DecisionContractSchema.parse({
+        message_id: message.id,
+        contact_id: message.contactId,
+        intent: intent.intent,
+        risk_level: 2,
+        decision: 'REVIEW_REQUIRED',
+        confidence: {
+          intent: intent.confidence,
+          context: context.contextConfidence,
+          factual: 85,
+          response: 82,
+        },
+        context_summary: context.recentSummary,
+        reason: 'Assunto moderado (compromisso, negociação ou solicitação pessoal) exige aprovação do proprietário.',
+        suggested_response: suggested,
+        safety_flags: risk.safetyFlags,
+        requires_human: true,
+        memory_candidates: [],
+        operational_action: intent.operationalAction,
+      });
+    }
+
+    // Level 0 or 1: Low risk. Check context sufficiency (H05)
+    // H05 / H06: If complex contextual question without facts in memory or history
+    if (intent.intent === 'QUESTION_CONTEXTUAL') {
+      // Check if answer is in contact memory notes
+      const matchedFact = context.contactMemory.notes.find((n) =>
+        message.content.toLowerCase().split(/\s+/).some((w) => w.length > 4 && n.toLowerCase().includes(w))
+      );
+
+      if (!matchedFact && context.recentMessages.length < 2) {
+        // H05: Insufficient context -> DO NOT INVENT, demand review!
+        decision = 'REVIEW_REQUIRED';
+        reason = 'H05: Faltam informações factuais no histórico/memória para responder com segurança.';
+        factualConfidence = 60;
+        responseConfidence = 65;
+        suggested = `Oi! Estou verificando isso e te respondo logo mais.`;
+      } else {
+        suggested = matchedFact
+          ? `Oi! Conforme alinhamos: ${matchedFact}.`
+          : `Tudo bem por aqui! Estou acompanhando.`;
+      }
+    } else if (intent.intent === 'GREETING') {
+      suggested = this.personalityEngine.getGreeting(context.contactMemory.relationship);
+    } else {
+      // Try agnostic LLM response (OmniRoute / OpenAI / Gemini proxy)
+      const generated = await this.generateWithLLM(
+        message.content,
+        context.recentSummary,
+        context.contactMemory.relationship
+      );
+
+      suggested = generated || 'Opa, tudo bem? Tudo certo por aqui, e contigo?';
+    }
+
+    // Format according to personality profile
+    suggested = this.personalityEngine.formatResponse(suggested, context.contactMemory);
+
+    const contextConf = risk.riskLevel === 0 ? Math.max(context.contextConfidence, 95) : context.contextConfidence;
+
+    const confidence: ConfidenceScores = {
+      intent: Math.min(100, Math.max(0, intent.confidence + hybridBoost)),
+      context: Math.min(100, Math.max(0, contextConf + hybridBoost)),
+      factual: Math.min(100, Math.max(0, factualConfidence + hybridBoost)),
+      response: Math.min(100, Math.max(0, responseConfidence + hybridBoost)),
+    };
+
+    return DecisionContractSchema.parse({
+      message_id: message.id,
+      contact_id: message.contactId,
+      intent: intent.intent,
+      risk_level: risk.riskLevel,
+      decision,
+      confidence,
+      context_summary: context.recentSummary,
+      reason: reason + hybridReason,
+      suggested_response: suggested,
+      safety_flags: safetyFlags,
+      requires_human: decision !== 'AUTO_REPLY',
+      memory_candidates: [],
+      operational_action: intent.operationalAction,
+    });
+  }
+}
