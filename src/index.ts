@@ -54,8 +54,9 @@ async function main() {
 
   // Bind Gateway message stream into Processor
   gateway.on('message', (msg) => {
+    console.log(`[App] Nova mensagem recebida de ${msg.contactId} (fromMe: ${msg.fromMe}): "${msg.content}"`);
     processor.onIncomingMessage(msg).catch((err) => {
-      console.error('Error processing incoming message:', err);
+      console.error('[App] Erro ao processar mensagem recebida:', err);
     });
   });
 

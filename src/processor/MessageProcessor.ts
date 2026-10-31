@@ -37,7 +37,7 @@ export class MessageProcessor extends EventEmitter {
   ) {
     super();
     this.config = {
-      bufferWindowMs: 2500, // wait 2.5s for consecutive rapid-fire messages (H02)
+      bufferWindowMs: 800, // Janela curta de 800ms para mensagens rápidas
       ...customConfig,
     };
   }
@@ -117,6 +117,7 @@ export class MessageProcessor extends EventEmitter {
 
     // Execute according to deterministic evaluation
     if (evaluation.allowedAction === 'AUTO_REPLY' && proposal.suggested_response) {
+      console.log(`[MessageProcessor] AUTO_REPLY disparado para ${message.contactId}: "${proposal.suggested_response}"`);
       const sendResult = await this.dispatcher.dispatch(
         message.id,
         message.contactId,
@@ -124,8 +125,10 @@ export class MessageProcessor extends EventEmitter {
       );
       if (sendResult.sent) {
         sentResponse = proposal.suggested_response;
+        console.log(`[MessageProcessor] AUTO_REPLY enviado com sucesso para ${message.contactId}!`);
       } else {
         evaluation.blockedReason = sendResult.reason;
+        console.warn(`[MessageProcessor] AUTO_REPLY bloqueado pelo dispatcher: ${sendResult.reason}`);
       }
     } else if (evaluation.allowedAction === 'REVIEW_REQUIRED' && proposal.suggested_response) {
       await this.approvalManager.addToQueue({
