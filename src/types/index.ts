@@ -53,6 +53,7 @@ export type DecisionContract = z.infer<typeof DecisionContractSchema>;
 
 export interface NormalizedMessage {
   id: string;
+  tenantId?: string;
   contactId: string;
   remoteJid?: string;
   senderName?: string;
@@ -66,8 +67,9 @@ export interface NormalizedMessage {
 
 export interface ContactMemory {
   contactId: string;
+  tenantId?: string;
   name?: string;
-  relationship: 'friend' | 'family' | 'work' | 'professional' | 'informal' | 'unknown';
+  relationship: 'romantic' | 'family' | 'friend' | 'work' | 'professional' | 'informal' | 'unknown';
   formalityLevel: 'low' | 'medium' | 'high';
   notes: string[];
   autoReplyAllowed: boolean;
@@ -79,6 +81,7 @@ export interface ContactMemory {
 
 export interface PendingTask {
   id: string;
+  tenantId?: string;
   contactId: string;
   description: string;
   createdAt: number;
@@ -91,6 +94,7 @@ export interface PendingTask {
 
 export interface ApprovalQueueItem {
   id: string;
+  tenantId?: string;
   messageId: string;
   contactId: string;
   originalMessage: string;
@@ -107,6 +111,7 @@ export interface ApprovalQueueItem {
 
 export interface AuditLogEntry {
   id: string;
+  tenantId?: string;
   timestamp: number;
   contactId: string;
   messageId: string;
@@ -123,8 +128,17 @@ export interface AuditLogEntry {
   requiresHuman: boolean;
 }
 
+export interface TenantUser {
+  id: string; // tenant id
+  username: string;
+  name: string;
+  passwordHash: string;
+  createdAt: number;
+}
+
 export interface HeuristicKeywordRule {
   id: string;
+  tenantId?: string;
   word: string;
   category: 'high_confidence' | 'review' | 'blocked';
   weight: number; // 0 to 100

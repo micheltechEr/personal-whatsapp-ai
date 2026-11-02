@@ -65,6 +65,10 @@ describe('Phase 2 - Intelligence Engines', () => {
       const res = intentClassifier.classify('[Imagem]', 'image');
       expect(res.requiresResponse).toBe(false);
       expect(res.operationalAction).toBe('IGNORAR');
+
+      const stickerRes = intentClassifier.classify('[Figurinha]', 'other');
+      expect(stickerRes.requiresResponse).toBe(false);
+      expect(stickerRes.operationalAction).toBe('IGNORAR');
     });
 
     it('identifies acknowledgments and suppresses unnecessary responses (H10/H16)', () => {

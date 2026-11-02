@@ -28,7 +28,13 @@ export class ApprovalManager {
     if (item.status !== 'pending') return { success: false, reason: `Item já está com status ${item.status}.` };
 
     const responseText = item.editedResponse || item.suggestedResponse;
-    const res = await this.dispatcher.dispatch(item.messageId, item.contactId, responseText);
+    const originalMsg = await this.storage.getMessage(item.messageId);
+    const res = await this.dispatcher.dispatch(
+      item.messageId,
+      item.contactId,
+      responseText,
+      originalMsg?.raw
+    );
 
     if (res.sent) {
       await this.storage.updateApprovalStatus(approvalId, 'approved');
@@ -47,7 +53,13 @@ export class ApprovalManager {
     if (!item) return { success: false, reason: 'Item de aprovação não encontrado.' };
     if (item.status !== 'pending') return { success: false, reason: `Item já está com status ${item.status}.` };
 
-    const res = await this.dispatcher.dispatch(item.messageId, item.contactId, editedText);
+    const originalMsg = await this.storage.getMessage(item.messageId);
+    const res = await this.dispatcher.dispatch(
+      item.messageId,
+      item.contactId,
+      editedText,
+      originalMsg?.raw
+    );
     if (res.sent) {
       await this.storage.updateApprovalStatus(approvalId, 'edited', editedText);
       this.personalityEngine.learnFromFeedback(item.suggestedResponse, 'edited', editedText);

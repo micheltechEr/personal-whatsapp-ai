@@ -6,6 +6,7 @@ import makeWASocket, {
   WASocket,
   proto,
   ConnectionState,
+  downloadMediaMessage,
 } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcodeTerminal from 'qrcode';
@@ -21,6 +22,8 @@ export interface GatewayEvents {
   error: (err: Error) => void;
 }
 
+import { GroqAudioTranscriber } from '../intelligence/GroqAudioTranscriber.js';
+
 export class WhatsAppGateway extends EventEmitter {
   private socket: WASocket | null = null;
   private authDir: string;
@@ -32,10 +35,12 @@ export class WhatsAppGateway extends EventEmitter {
   private connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'qr_ready' = 'disconnected';
   private lidMapping: Map<string, string> = new Map(); // contactId -> remoteJid
   private logger = pino({ level: 'silent' });
+  private audioTranscriber: GroqAudioTranscriber;
 
-  constructor(authDir?: string) {
+  constructor(authDir?: string, audioTranscriber?: GroqAudioTranscriber) {
     super();
     this.authDir = authDir || path.resolve(process.cwd(), '.baileys_auth');
+    this.audioTranscriber = audioTranscriber || new GroqAudioTranscriber();
   }
 
   public async getQrDataUrl(): Promise<string | null> {
@@ -48,6 +53,7 @@ export class WhatsAppGateway extends EventEmitter {
   }
 
   public getStatus(): { status: string; qr: string | null; reconnectAttempts: number } {
+    console.log(`[WhatsAppGateway] getStatus() chamado -> ${this.connectionStatus}`);
     return {
       status: this.connectionStatus,
       qr: this.qrCode,
@@ -56,7 +62,11 @@ export class WhatsAppGateway extends EventEmitter {
   }
 
   public async start(): Promise<void> {
-    if (this.isConnecting || this.socket) return;
+    console.log('[WhatsAppGateway] Método start() chamado');
+    if (this.isConnecting || this.socket) {
+      console.log('[WhatsAppGateway] Já conectando ou socket existente, abortando novo start()');
+      return;
+    }
     this.isConnecting = true;
     this.connectionStatus = 'connecting';
 
@@ -93,17 +103,26 @@ export class WhatsAppGateway extends EventEmitter {
         if (connection === 'close') {
           const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
           const reason = DisconnectReason[statusCode as keyof typeof DisconnectReason] || 'unknown';
+          console.warn(`[WhatsAppGateway] Conexão fechada. Motivo: ${reason} (${statusCode})`);
           this.connectionStatus = 'disconnected';
           this.socket = null;
           this.isConnecting = false;
           this.emit('disconnected', reason);
 
           if (statusCode === DisconnectReason.loggedOut) {
-            this.shouldReconnect = false;
+            console.warn('[WhatsAppGateway] Sessão desconectada no celular (401 loggedOut). Limpando credenciais antigas e gerando novo QR Code...');
+            this.shouldReconnect = true;
+            this.isConnecting = false;
+            import('node:fs/promises').then(({ default: fsp }) => {
+              fsp.rm(this.authDir, { recursive: true, force: true }).then(() => {
+                setTimeout(() => this.start(), 1500);
+              }).catch(console.error);
+            });
           } else if (this.shouldReconnect) {
             this.scheduleReconnect();
           }
         } else if (connection === 'open') {
+          console.log('[WhatsAppGateway] CONEXÃO ABERTA COM SUCESSO (STATUS: CONNECTED)!');
           this.connectionStatus = 'connected';
           this.qrCode = null;
           this.reconnectAttempts = 0;
@@ -112,7 +131,15 @@ export class WhatsAppGateway extends EventEmitter {
         }
       });
 
-      this.socket.ev.on('messages.upsert', ({ messages, type }) => {
+      this.socket.ev.on('messages.upsert', async ({ messages, type }) => {
+        // REGRA DE SEGURANÇA 1: Processa apenas mensagens recebidas em tempo real ('notify').
+        // Descarta 'append' (sincronização de histórico antigo do WhatsApp que causava disparos em massa)
+        if (type !== 'notify') {
+          return;
+        }
+
+        const now = Date.now();
+
         for (const rawMsg of messages) {
           const jid = rawMsg.key?.remoteJid || '';
           // Strictly drop groups right away
@@ -122,11 +149,46 @@ export class WhatsAppGateway extends EventEmitter {
 
           const normalized = normalizeBaileysMessage(rawMsg);
           if (normalized) {
+            // REGRA DE SEGURANÇA 2: Descarta mensagens com mais de 2 minutos de atraso (mensagens velhas descarregadas na reconexão)
+            if (now - normalized.timestamp > 2 * 60 * 1000) {
+              console.log(`[WhatsAppGateway] Mensagem antiga de ${normalized.contactId} descartada (atraso: ${Math.round((now - normalized.timestamp) / 1000)}s)`);
+              continue;
+            }
+
             this.lidMapping.set(normalized.contactId, jid);
             if (rawMsg.key?.remoteJidAlt) {
               this.lidMapping.set(normalized.contactId, rawMsg.key.remoteJidAlt);
             }
             this.lidMapping.set(jid, jid);
+
+            // Transcrição de áudio com Groq Whisper (SOMENTE para áudios/mensagens de voz)
+            if (normalized.type === 'audio' && rawMsg.message?.audioMessage && this.audioTranscriber.isAvailable()) {
+              try {
+                console.log(`[WhatsAppGateway] Áudio recebido de ${normalized.contactId}. Baixando para transcrição com Groq Whisper...`);
+                const buffer = await downloadMediaMessage(
+                  rawMsg,
+                  'buffer',
+                  {},
+                  {
+                    logger: this.logger as any,
+                    reuploadRequest: this.socket!.updateMediaMessage,
+                  }
+                );
+
+                if (Buffer.isBuffer(buffer)) {
+                  const transcript = await this.audioTranscriber.transcribe(buffer);
+                  if (transcript && transcript.length > 0) {
+                    console.log(`[WhatsAppGateway] Áudio transcrito com Groq Whisper: "${transcript}"`);
+                    normalized.content = transcript;
+                    // Promove tipo de conteúdo para texto para alimentar o pipeline de decisão
+                    normalized.type = 'text';
+                  }
+                }
+              } catch (audioErr) {
+                console.warn('[WhatsAppGateway] Falha ao baixar/transcrever mensagem de voz:', audioErr);
+              }
+            }
+
             this.emit('message', normalized);
           }
         }
@@ -178,7 +240,7 @@ export class WhatsAppGateway extends EventEmitter {
     this.connectionStatus = 'disconnected';
   }
 
-  public async sendMessage(contactId: string, text: string): Promise<string> {
+  public async sendMessage(contactId: string, text: string, quotedMessage?: any): Promise<string> {
     if (!this.socket || this.connectionStatus !== 'connected') {
       throw new Error('WhatsApp gateway is not connected');
     }
@@ -186,17 +248,19 @@ export class WhatsAppGateway extends EventEmitter {
     const cachedJid = this.lidMapping.get(contactId);
     let targetJid = cachedJid || (contactId.includes('@') ? contactId : `${contactId}@s.whatsapp.net`);
 
-    console.log(`[WhatsAppGateway] Tentando envio para ${targetJid}: "${text}"`);
+    console.log(`[WhatsAppGateway] Tentando envio (com quoted: ${Boolean(quotedMessage)}) para ${targetJid}: "${text}"`);
     let result: any;
 
+    const options = quotedMessage ? { quoted: quotedMessage } : undefined;
+
     try {
-      result = await this.socket.sendMessage(targetJid, { text });
+      result = await this.socket.sendMessage(targetJid, { text }, options);
     } catch (primaryErr) {
       // Se falhou no JID principal (ex: @lid) e o contato tem formato de telefone, tenta o fallback @s.whatsapp.net
       if (targetJid.includes('@lid') && /^\d+$/.test(contactId)) {
         const fallbackJid = `${contactId}@s.whatsapp.net`;
         console.warn(`[WhatsAppGateway] Falha enviando para LID ${targetJid}, tentando fallback ${fallbackJid}...`);
-        result = await this.socket.sendMessage(fallbackJid, { text });
+        result = await this.socket.sendMessage(fallbackJid, { text }, options);
       } else {
         throw primaryErr;
       }

@@ -1,4 +1,5 @@
 import { RiskLevel } from '../types/index.js';
+import { JevClassifierClient, JevEvaluationResult } from './JevClassifierClient.js';
 
 export interface RiskAnalysis {
   riskLevel: RiskLevel;
@@ -7,9 +8,11 @@ export interface RiskAnalysis {
   promptInjectionDetected: boolean;
   isSensitiveTopic: boolean;
   requiresHumanReview: boolean;
+  jevEvaluation?: JevEvaluationResult;
 }
 
 export class RiskEngine {
+  constructor(private jevClient?: JevClassifierClient) {}
   // Regex patterns for Prompt Injection attacks & System Probing (H12)
   private injectionPatterns: RegExp[] = [
     /ignore\s+(all\s+)?(previous|prior)\s+instructions/i,
@@ -33,25 +36,74 @@ export class RiskEngine {
 
   // Regex patterns for Level 3: Money, Bank, Pix, Health, Legal, Delicate/Intimate, Conflict
   private moneyPatterns: RegExp[] = [
-    /\b(pix|chave\s+pix|transfer[êe]ncia|ted|doc|dep[óo]sito|banco|conta\s+banc[áa]ria|empr[ée]stimo|pagar|pagamento|fatura|cart[ãa]o|cvv|dinheiro|reais|r\$|d[óo]lar)\b/i,
+    /\b(pix|chave\s+pix|transfer[êe]ncia\s+banc[áa]ria|ted|doc|dep[óo]sito\s+em\s+conta|conta\s+banc[áa]ria|empr[ée]stimo|fatura\s+do\s+cart[ãa]o|cart[ãa]o\s+de\s+cr[ée]dito|cvv|\d+\s*reais|\bR\$\s*\d+|quantos\s+d[óo]lares)\b/i,
   ];
 
   private healthPatterns: RegExp[] = [
-    /\b(rem[ée]dio|medicamento|diagn[óo]stico|sintoma|doen[çc]a|hospital|m[ée]dico|exame|cirurgia|depress[ãa]o|suic[íi]dio|ansiedade|tratamento|dor\s+no\s+peito)\b/i,
+    /\b(rem[ée]dio|medicamento|diagn[óo]stico|sintoma|hospital|m[ée]dico|cirurgia|depress[ãa]o|suic[íi]dio|dor\s+no\s+peito|tratamento\s+m[ée]dico)\b/i,
   ];
 
   private legalPatterns: RegExp[] = [
-    /\b(advogado|processo|judicial|juiz|intima[çc][ãa]o|audi[êe]ncia|contrato\s+social|notifica[çc][ãa]o\s+extrajudicial|pol[íi]cia|boletim\s+de\s+ocorr[êe]ncia|delegacia)\b/i,
+    /\b(advogado|processo\s+judicial|juiz|intima[çc][ãa]o|audi[êe]ncia\s+judicial|contrato\s+social|notifica[çc][ãa]o\s+extrajudicial|boletim\s+de\s+ocorr[êe]ncia|mandado\s+de\s+pris[ãa]o)\b/i,
   ];
 
   private conflictAndEmotionPatterns: RegExp[] = [
-    /\b(odeio|terminar|div[óo]rcio|separar|separada|separado|briga|brigando|trai[çc][ãa]o|traiu|chora|chorando|n[ãa]o\s+aguento\s+mais|desgosto|vergonha|culpa|amante)\b/i,
+    /\b(odeio\s+voc[êe]|terminar\s+o\s+namoro|div[óo]rcio|vamos\s+nos\s+separar|briga|brigando|brigados|trai[çc][ãa]o|traiu|chorando|n[ãa]o\s+aguento\s+mais|amante|magoado|magoada)\b/i,
   ];
 
   // Patterns for Level 2: Commitments, invitations, negotiations, sensitive preferences
   private moderatePatterns: RegExp[] = [
-    /\b(vamos\s+almo[çc]ar|podemos\s+marcar|reuni[ãa]o|fechar\s+o\s+contrato|or[çc]amento|quanto\s+custa|qual\s+o\s+pre[çc]o|parceria|proposta|assinar|compromisso)\b/i,
+    /\b(vamos\s+almo[çc]ar|podemos\s+marcar\s+uma\s+reuni[ãa]o|fechar\s+o\s+contrato|qual\s+o\s+valor\s+do\s+or[çc]amento|quanto\s+custa\s+o\s+servi[çc]o|qual\s+o\s+pre[çc]o|fechar\s+parceria|assinar\s+o\s+contrato)\b/i,
   ];
+
+  public async analyzeAsync(messageContent: string, recentHistorySummary: string = ''): Promise<RiskAnalysis> {
+    const baseAnalysis = this.analyze(messageContent, recentHistorySummary);
+
+    // Se já foi categorizado como Nível 3 pelas regras locais, preserva bloqueio imediato
+    if (baseAnalysis.riskLevel === 3) {
+      return baseAnalysis;
+    }
+
+    // Consulta classificador neural Jev para validação profunda
+    if (this.jevClient && this.jevClient.isAvailable()) {
+      const jevResult = await this.jevClient.evaluate(messageContent);
+      if (jevResult) {
+        if (jevResult.isAttackOrProbing) {
+          return {
+            riskLevel: 3,
+            safetyFlags: [...baseAnalysis.safetyFlags, 'PROMPT_INJECTION_SUSPECT', 'JEV_ATTACK_DETECTED'],
+            reasons: [
+              ...baseAnalysis.reasons,
+              `Jev Classifier detectou ataque/sondagem (score=${jevResult.promptInjectionScore}, intent=${jevResult.intent})`,
+            ],
+            promptInjectionDetected: true,
+            isSensitiveTopic: true,
+            requiresHumanReview: true,
+            jevEvaluation: jevResult,
+          };
+        }
+
+        // Se o Jev indicar risco alto (>= 2.0)
+        if (jevResult.riskScore >= 2.0 && baseAnalysis.riskLevel < 2) {
+          return {
+            ...baseAnalysis,
+            riskLevel: 2,
+            safetyFlags: [...baseAnalysis.safetyFlags, 'JEV_MODERATE_RISK'],
+            reasons: [...baseAnalysis.reasons, `Jev Classifier classificou risco como moderado (${jevResult.riskScore})`],
+            requiresHumanReview: true,
+            jevEvaluation: jevResult,
+          };
+        }
+
+        return {
+          ...baseAnalysis,
+          jevEvaluation: jevResult,
+        };
+      }
+    }
+
+    return baseAnalysis;
+  }
 
   public analyze(messageContent: string, recentHistorySummary: string = ''): RiskAnalysis {
     const text = messageContent.toLowerCase();

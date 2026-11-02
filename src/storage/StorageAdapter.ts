@@ -5,43 +5,49 @@ import {
   ApprovalQueueItem,
   AuditLogEntry,
   HeuristicKeywordRule,
+  TenantUser,
 } from '../types/index.js';
 
 export interface StorageAdapter {
   init(): Promise<void>;
   close(): Promise<void>;
 
-  // Messages
-  saveMessage(msg: NormalizedMessage): Promise<void>;
-  getMessage(id: string): Promise<NormalizedMessage | null>;
-  getRecentMessages(contactId: string, limit?: number): Promise<NormalizedMessage[]>;
-  hasMessage(id: string): Promise<boolean>;
+  // Tenants & Auth
+  createTenant(user: TenantUser): Promise<void>;
+  getTenantByUsername(username: string): Promise<TenantUser | null>;
+  getTenantById(id: string): Promise<TenantUser | null>;
+
+  // Messages (scoped by tenantId)
+  saveMessage(msg: NormalizedMessage, tenantId?: string): Promise<void>;
+  getMessage(id: string, tenantId?: string): Promise<NormalizedMessage | null>;
+  getRecentMessages(contactId: string, limit?: number, tenantId?: string): Promise<NormalizedMessage[]>;
+  hasMessage(id: string, tenantId?: string): Promise<boolean>;
 
   // Contact Memory
-  getContactMemory(contactId: string): Promise<ContactMemory | null>;
-  saveContactMemory(mem: ContactMemory): Promise<void>;
+  getContactMemory(contactId: string, tenantId?: string): Promise<ContactMemory | null>;
+  saveContactMemory(mem: ContactMemory, tenantId?: string): Promise<void>;
 
   // Pending Tasks
-  savePendingTask(task: PendingTask): Promise<void>;
-  getPendingTasks(status?: 'pending' | 'resolved' | 'dismissed'): Promise<PendingTask[]>;
-  updatePendingTaskState(id: string, state: 'pending' | 'resolved' | 'dismissed'): Promise<void>;
+  savePendingTask(task: PendingTask, tenantId?: string): Promise<void>;
+  getPendingTasks(status?: 'pending' | 'resolved' | 'dismissed', tenantId?: string): Promise<PendingTask[]>;
+  updatePendingTaskState(id: string, state: 'pending' | 'resolved' | 'dismissed', tenantId?: string): Promise<void>;
 
   // Approvals
-  saveApprovalItem(item: ApprovalQueueItem): Promise<void>;
-  getApprovalItem(id: string): Promise<ApprovalQueueItem | null>;
-  getPendingApprovals(): Promise<ApprovalQueueItem[]>;
-  updateApprovalStatus(id: string, status: 'approved' | 'rejected' | 'edited', editedResponse?: string): Promise<void>;
+  saveApprovalItem(item: ApprovalQueueItem, tenantId?: string): Promise<void>;
+  getApprovalItem(id: string, tenantId?: string): Promise<ApprovalQueueItem | null>;
+  getPendingApprovals(tenantId?: string): Promise<ApprovalQueueItem[]>;
+  updateApprovalStatus(id: string, status: 'approved' | 'rejected' | 'edited', editedResponse?: string, tenantId?: string): Promise<void>;
 
   // Audit Logs
-  saveAuditLog(entry: AuditLogEntry): Promise<void>;
-  getAuditLogs(limit?: number): Promise<AuditLogEntry[]>;
+  saveAuditLog(entry: AuditLogEntry, tenantId?: string): Promise<void>;
+  getAuditLogs(limit?: number, tenantId?: string): Promise<AuditLogEntry[]>;
 
   // Idempotency / Dispatch Tracking
-  recordSentMessage(messageId: string, contactId: string, text: string): Promise<boolean>;
-  isMessageAlreadySent(messageId: string): Promise<boolean>;
+  recordSentMessage(messageId: string, contactId: string, text: string, tenantId?: string): Promise<boolean>;
+  isMessageAlreadySent(messageId: string, tenantId?: string): Promise<boolean>;
 
   // Custom Heuristic Keyword Rules (Hybrid Search)
-  getKeywordRules(): Promise<HeuristicKeywordRule[]>;
-  saveKeywordRule(rule: HeuristicKeywordRule): Promise<void>;
-  deleteKeywordRule(id: string): Promise<boolean>;
+  getKeywordRules(tenantId?: string): Promise<HeuristicKeywordRule[]>;
+  saveKeywordRule(rule: HeuristicKeywordRule, tenantId?: string): Promise<void>;
+  deleteKeywordRule(id: string, tenantId?: string): Promise<boolean>;
 }

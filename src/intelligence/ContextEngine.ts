@@ -50,6 +50,19 @@ export class ContextEngine {
 
     const isOwnerLastSender = recent.length > 0 && recent[recent.length - 1].fromMe;
 
+    // Detecção automática de relacionamento (romântico, familiar, profissional)
+    const combinedHistory = recent.map((m) => m.content.toLowerCase()).join(' ');
+    const isRomantic = /\b(amor|amorzinho|vida|minha\s+vida|meu\s+bem|namorada|namorado|bb|linda|paix[ãa]o|meu\s+amor|te\s+amo|gata)\b/i.test(combinedHistory);
+    const isFamily = /\b(m[ãa]e|pai|irm[ãa]|irm[ãa]o|tio|tia|v[óo]|vov[ôo])\b/i.test(combinedHistory);
+
+    if (isRomantic && mem.relationship !== 'romantic') {
+      mem.relationship = 'romantic';
+      await this.storage.saveContactMemory(mem);
+    } else if (isFamily && (mem.relationship === 'unknown' || mem.relationship === 'informal')) {
+      mem.relationship = 'family';
+      await this.storage.saveContactMemory(mem);
+    }
+
     // Check if owner sent a manual reply AFTER the latest message from the contact
     // Apenas se o proprietário digitou MANUALMENTE após a última mensagem do contato nos últimos 60 segundos
     let ownerSentManualReplyRecently = false;

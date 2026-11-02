@@ -7,6 +7,7 @@ import {
   ApprovalQueueItem,
   AuditLogEntry,
   HeuristicKeywordRule,
+  TenantUser,
 } from '../types/index.js';
 
 export class PostgresStorageAdapter implements StorageAdapter {
@@ -103,6 +104,14 @@ export class PostgresStorageAdapter implements StorageAdapter {
         weight INT NOT NULL,
         description TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS tenants (
+        id VARCHAR(255) PRIMARY KEY,
+        username VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        created_at BIGINT NOT NULL
+      );
     `);
   }
 
@@ -137,10 +146,11 @@ export class PostgresStorageAdapter implements StorageAdapter {
   }
 
   async getRecentMessages(contactId: string, limit = 20): Promise<NormalizedMessage[]> {
-    const res = await this.pool.query(
-      `SELECT * FROM messages WHERE contact_id = $1 ORDER BY timestamp ASC LIMIT $2`,
-      [contactId, limit]
-    );
+    const query = contactId
+      ? `SELECT * FROM messages WHERE contact_id = $1 ORDER BY timestamp ASC LIMIT $2`
+      : `SELECT * FROM messages ORDER BY timestamp ASC LIMIT $1`;
+    const params = contactId ? [contactId, limit] : [limit];
+    const res = await this.pool.query(query, params);
     return res.rows.map((r) => ({
       id: r.id,
       contactId: r.contact_id,
@@ -391,5 +401,41 @@ export class PostgresStorageAdapter implements StorageAdapter {
   async deleteKeywordRule(id: string): Promise<boolean> {
     const res = await this.pool.query(`DELETE FROM heuristic_keyword_rules WHERE id = $1`, [id]);
     return (res.rowCount || 0) > 0;
+  }
+
+  // Tenants
+  async createTenant(user: TenantUser): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO tenants (id, username, name, password_hash, created_at)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (id) DO UPDATE SET username = $2, name = $3, password_hash = $4`,
+      [user.id, user.username, user.name, user.passwordHash, user.createdAt]
+    );
+  }
+
+  async getTenantByUsername(username: string): Promise<TenantUser | null> {
+    const res = await this.pool.query(`SELECT * FROM tenants WHERE LOWER(username) = LOWER($1)`, [username]);
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      username: r.username,
+      name: r.name,
+      passwordHash: r.password_hash,
+      createdAt: Number(r.created_at),
+    };
+  }
+
+  async getTenantById(id: string): Promise<TenantUser | null> {
+    const res = await this.pool.query(`SELECT * FROM tenants WHERE id = $1`, [id]);
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      username: r.username,
+      name: r.name,
+      passwordHash: r.password_hash,
+      createdAt: Number(r.created_at),
+    };
   }
 }

@@ -8,11 +8,14 @@ import { IntentClassifier } from './intelligence/IntentClassifier.js';
 import { RiskEngine } from './intelligence/RiskEngine.js';
 import { PersonalityEngine } from './intelligence/PersonalityEngine.js';
 import { HybridHeuristicInterpreter } from './intelligence/HybridHeuristicInterpreter.js';
+import { JevClassifierClient } from './intelligence/JevClassifierClient.js';
+import { OwnerStyleRAG } from './intelligence/OwnerStyleRAG.js';
 import { ResponseGenerator } from './intelligence/ResponseGenerator.js';
 import { AutonomyController } from './autonomy/AutonomyController.js';
 import { MessageDispatcher } from './autonomy/MessageDispatcher.js';
 import { ApprovalManager } from './autonomy/ApprovalManager.js';
 import { MessageProcessor } from './processor/MessageProcessor.js';
+import { TenantManager } from './tenant/TenantManager.js';
 import { createServer } from './api/server.js';
 
 dotenv.config();
@@ -25,49 +28,35 @@ async function main() {
 
   await storage.init();
 
-  const personalityEngine = new PersonalityEngine();
-  const contextEngine = new ContextEngine(storage);
-  const intentClassifier = new IntentClassifier();
-  const riskEngine = new RiskEngine();
-  const hybridInterpreter = new HybridHeuristicInterpreter(storage);
-  const responseGenerator = new ResponseGenerator(personalityEngine, undefined, hybridInterpreter);
+  // Tenant Manager (Multi-Tenant & Session Engine)
+  const tenantManager = new TenantManager(storage);
 
-  const autonomyController = new AutonomyController({
-    globalMode: 'AUTONOMOUS_CONTROLLED',
-  });
+  // Garante o tenant padrão 'admin' (para retrocompatibilidade com a sessão ativa atual)
+  let defaultAdmin = await storage.getTenantByUsername('admin');
+  if (!defaultAdmin) {
+    const reg = await tenantManager.register('Ângelo Miguel', 'admin', 'admin123');
+    defaultAdmin = reg.tenant || null;
+  }
 
-  const gateway = new WhatsAppGateway();
-  const dispatcher = new MessageDispatcher(storage, gateway);
-  const approvalManager = new ApprovalManager(storage, dispatcher, personalityEngine);
-
-  const processor = new MessageProcessor(
-    storage,
-    contextEngine,
-    intentClassifier,
-    riskEngine,
-    personalityEngine,
-    responseGenerator,
-    autonomyController,
-    dispatcher,
-    approvalManager
-  );
-
-  // Bind Gateway message stream into Processor
-  gateway.on('message', (msg) => {
-    console.log(`[App] Nova mensagem recebida de ${msg.contactId} (fromMe: ${msg.fromMe}): "${msg.content}"`);
-    processor.onIncomingMessage(msg).catch((err) => {
-      console.error('[App] Erro ao processar mensagem recebida:', err);
-    });
-  });
+  // Inicializa o container do admin
+  let adminRuntime = defaultAdmin ? await tenantManager.getOrCreateRuntime(defaultAdmin) : null;
+  const gateway = adminRuntime ? adminRuntime.gateway : new WhatsAppGateway();
+  const autonomyController = adminRuntime ? adminRuntime.autonomyController : new AutonomyController({ globalMode: 'AUTONOMOUS_CONTROLLED' });
+  const approvalManager = adminRuntime ? adminRuntime.approvalManager : new ApprovalManager(storage, new MessageDispatcher(storage), new PersonalityEngine());
+  const personalityEngine = adminRuntime ? adminRuntime.personalityEngine : new PersonalityEngine();
+  const hybridInterpreter = adminRuntime ? adminRuntime.hybridInterpreter : new HybridHeuristicInterpreter(storage);
+  const styleRAG = adminRuntime ? adminRuntime.styleRAG : new OwnerStyleRAG(storage);
 
   const port = Number(process.env.PORT) || 3000;
   const server = createServer({
     storage,
+    tenantManager,
     gateway,
     autonomyController,
     approvalManager,
     personalityEngine,
     hybridInterpreter,
+    styleRAG,
   });
 
   await server.listen({ port, host: '0.0.0.0' });
@@ -75,7 +64,10 @@ async function main() {
   console.log(`[Personal WhatsApp AI] Mode: ${autonomyController.getGlobalMode()}`);
 
   if (process.env.START_WHATSAPP === 'true') {
-    await gateway.start();
+    console.log('[App] START_WHATSAPP=true detectado, iniciando gateway...');
+    gateway.start().catch((err) => {
+      console.error('[WhatsAppGateway] Erro ao iniciar socket principal:', err);
+    });
   } else {
     console.log(`[Personal WhatsApp AI] WhatsApp socket idle. Set START_WHATSAPP=true to scan QR code.`);
   }

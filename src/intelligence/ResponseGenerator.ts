@@ -1,5 +1,6 @@
 import { AgnosticLLMClient, LLMClientConfig } from './AgnosticLLMClient.js';
 import { HybridHeuristicInterpreter } from './HybridHeuristicInterpreter.js';
+import { OwnerStyleRAG } from './OwnerStyleRAG.js';
 import {
   DecisionContract,
   DecisionContractSchema,
@@ -18,7 +19,8 @@ export class ResponseGenerator {
   constructor(
     private personalityEngine: PersonalityEngine,
     config?: LLMClientConfig,
-    private hybridInterpreter?: HybridHeuristicInterpreter
+    private hybridInterpreter?: HybridHeuristicInterpreter,
+    private styleRAG?: OwnerStyleRAG
   ) {
     this.llmClient = new AgnosticLLMClient(config);
   }
@@ -26,16 +28,50 @@ export class ResponseGenerator {
   private async generateWithLLM(
     messageText: string,
     contextSummary: string,
-    relationship: string
+    relationship: string,
+    contactId?: string
   ): Promise<string | null> {
-    const systemPrompt = `Você é o assistente pessoal de comunicação do proprietário no WhatsApp.
-O objetivo é responder mensagens cotidianas com extrema fidelidade ao estilo do proprietário:
-- Tom: direto, conciso, natural, sem formalismo exagerado ou robótico.
-- Proibido usar jargões corporativos de IA (ex: "espero que esta mensagem o encontre bem", "como assistente de IA", "certamente!").
-- Relação com interlocutor: ${relationship}
-- Contexto recente da conversa: ${contextSummary || 'Início de conversa'}
+    let ragFewShotSection = '';
+    let styleGuidance = '- Tom: direto, conciso, gírias normais de WhatsApp (ex: kkk, pow, mano, blz), sem formalismo.';
 
-Gere APENAS a resposta final curta (1 a 2 frases no máximo) para ser enviada no WhatsApp. Sem aspas adicionais.`;
+    if (this.styleRAG && contactId) {
+      const ragContext = this.styleRAG.retrieveStyleContext(messageText, contactId, 4);
+      if (ragContext.fewShotExamples.length > 0) {
+        const examplesText = ragContext.fewShotExamples
+          .map((ex) => `Contato: "${ex.inboundText}" -> Ângelo respondeu: "${ex.ownerReplyText}"`)
+          .join('\n');
+
+        ragFewShotSection = `\n\nEXEMPLOS REAIS DE COMO O ÂNGELO RESPONDE NO WHATSAPP (RAG):\n${examplesText}\nImite exatamente a cadência, tom informal, abreviações e concisão desses exemplos acima.`;
+      }
+
+      const { averageWordCount, frequentSlang, lowercaseRatio } = ragContext.metrics;
+      styleGuidance += `\n- Média de palavras do Ângelo: cerca de ${averageWordCount} palavras por resposta.`;
+      if (frequentSlang.length > 0) {
+        styleGuidance += `\n- Gírias/abreviações típicas do Ângelo: ${frequentSlang.join(', ')}.`;
+      }
+      if (lowercaseRatio > 0.5) {
+        styleGuidance += `\n- Preferir respostas sem formalidade, com estilo casual de chat.`;
+      }
+    }
+
+    let relationshipVocatives = '';
+    if (relationship === 'romantic') {
+      relationshipVocatives = `\n- RELAÇÃO ROMÂNTICA / NAMORADA: É TOTALMENTE PROIBIDO usar "mano", "vei", "cara", "irmão", "brother", "parça". Responda com afeto de namorado (ex: "amor", "vida", "linda" ou tom carinhoso). Jamais use gírias masculinas de amigos.`;
+    } else if (relationship === 'family') {
+      relationshipVocatives = `\n- RELAÇÃO FAMILIAR: Proibido usar "mano", "vei" ou gírias de rua. Trate com respeito e carinho.`;
+    }
+
+    const systemPrompt = `Você é o Ângelo conversando no seu WhatsApp pessoal com seus amigos/contatos.
+Você NUNCA deve responder como robô ou assistente genérico ("Opa, tudo bem? Tudo certo por aqui, e contigo?").
+Regras de interpretação e estilo:
+${styleGuidance}${relationshipVocatives}
+- ATENÇÃO À COERÊNCIA CONTEXTUAL: Interprete quem é o sujeito da ação observando o histórico recente. Se a pessoa falar "Demora pra achar figurinha", "Demora pra responder", etc., ela está justificando a própria ação ou comentando o que ela mesma fez, NÃO você. Não assuma a culpa nem responda como se você estivesse procurando o que o contato procurou.
+- Reaja diretamente e com naturalidade ao que a pessoa disse (ex: "kkkk achou?", "mandou logo essa", "valeu a pena kkk").
+- Proibido usar jargões de assistente virtual ou saudações prontas engessadas.
+- Relação com interlocutor: ${relationship}
+- Contexto recente da conversa: ${contextSummary || 'Início de conversa'}${ragFewShotSection}
+
+Gere APENAS a resposta final curta (1 frase no máximo) exatamente como o Ângelo enviaria no WhatsApp.`;
 
     return this.llmClient.complete([
       { role: 'system', content: systemPrompt },
@@ -212,17 +248,43 @@ Gere APENAS a resposta final curta (1 a 2 frases no máximo) para ser enviada no
     } else if (intent.intent === 'GREETING') {
       suggested = this.personalityEngine.getGreeting(context.contactMemory.relationship);
     } else {
-      // Try agnostic LLM response (OmniRoute / OpenAI / Gemini proxy)
+      // Try agnostic LLM response (OmniRoute / OpenAI / Gemini proxy) com RAG de Estilo
       const generated = await this.generateWithLLM(
         message.content,
         context.recentSummary,
-        context.contactMemory.relationship
+        context.contactMemory.relationship,
+        message.contactId
       );
 
-      suggested = generated || 'Opa, tudo bem? Tudo certo por aqui, e contigo?';
+      // Fallback para conversas ultra curtas caso o LLM demore ou não retorne
+      if (!generated || generated.trim().length === 0) {
+        if (intent.intent === 'GREETING') {
+          suggested = 'Opa, tudo bem?';
+        } else if (intent.intent === 'CASUAL_CONVERSATION') {
+          suggested = 'De boa por aqui!';
+        } else {
+          return DecisionContractSchema.parse({
+            message_id: message.id,
+            contact_id: message.contactId,
+            intent: intent.intent,
+            risk_level: 2,
+            decision: 'REVIEW_REQUIRED',
+            confidence: { intent: intent.confidence, context: context.contextConfidence, factual: 70, response: 60 },
+            context_summary: context.recentSummary,
+            reason: 'LLM não retornou resposta segura; enviado para revisão.',
+            suggested_response: '',
+            safety_flags: safetyFlags,
+            requires_human: true,
+            memory_candidates: [],
+            operational_action: intent.operationalAction,
+          });
+        }
+      } else {
+        suggested = generated;
+      }
     }
 
-    // Format according to personality profile
+    // Formata a resposta: sempre filtra vocativos proibidos para relações românticas e família, e formalidade para trabalho
     suggested = this.personalityEngine.formatResponse(suggested, context.contactMemory);
 
     const contextConf = risk.riskLevel === 0 ? Math.max(context.contextConfidence, 95) : context.contextConfidence;

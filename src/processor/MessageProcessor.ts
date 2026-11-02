@@ -105,8 +105,13 @@ export class MessageProcessor extends EventEmitter {
 
   public async processSingleOrAggregated(message: NormalizedMessage): Promise<void> {
     const context = await this.contextEngine.getContext(message.contactId);
-    const risk = this.riskEngine.analyze(message.content, context.recentSummary);
-    const intent = this.intentClassifier.classify(message.content, message.type, context.recentSummary);
+    const risk = await this.riskEngine.analyzeAsync(message.content, context.recentSummary);
+    const intent = this.intentClassifier.classifyWithJev(
+      message.content,
+      message.type,
+      context.recentSummary,
+      risk.jevEvaluation
+    );
 
     // Generate Proposal
     const proposal = await this.responseGenerator.generateDecision(message, context, risk, intent);
@@ -122,7 +127,8 @@ export class MessageProcessor extends EventEmitter {
       const sendResult = await this.dispatcher.dispatch(
         message.id,
         message.contactId,
-        proposal.suggested_response
+        proposal.suggested_response,
+        message.raw // Passa a mensagem original para citação com quoted
       );
       if (sendResult.sent) {
         sentResponse = proposal.suggested_response;

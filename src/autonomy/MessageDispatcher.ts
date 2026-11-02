@@ -27,7 +27,8 @@ export class MessageDispatcher {
   public async dispatch(
     messageId: string,
     contactId: string,
-    text: string
+    text: string,
+    quotedRawMessage?: any
   ): Promise<{ sent: boolean; reason?: string; sentMessageId?: string }> {
     if (!text || !text.trim()) {
       return { sent: false, reason: 'Texto de resposta vazio.' };
@@ -66,7 +67,7 @@ export class MessageDispatcher {
     let sentId = `sim-sent-${now}`;
     if (this.gateway) {
       try {
-        sentId = await this.gateway.sendMessage(contactId, text);
+        sentId = await this.gateway.sendMessage(contactId, text, quotedRawMessage);
       } catch (err) {
         console.error(`[MessageDispatcher] Erro ao enviar mensagem para ${contactId}:`, err);
         return {

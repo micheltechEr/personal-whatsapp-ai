@@ -6,33 +6,106 @@ import { AutonomyController } from '../autonomy/AutonomyController.js';
 import { ApprovalManager } from '../autonomy/ApprovalManager.js';
 import { PersonalityEngine } from '../intelligence/PersonalityEngine.js';
 import { HybridHeuristicInterpreter } from '../intelligence/HybridHeuristicInterpreter.js';
+import { OwnerStyleRAG } from '../intelligence/OwnerStyleRAG.js';
+import { TenantManager, TenantRuntimeContainer } from '../tenant/TenantManager.js';
 import { HeuristicKeywordRule } from '../types/index.js';
 
 export function createServer(dependencies: {
   storage: StorageAdapter;
+  tenantManager: TenantManager;
   gateway?: WhatsAppGateway;
-  autonomyController: AutonomyController;
-  approvalManager: ApprovalManager;
-  personalityEngine: PersonalityEngine;
+  autonomyController?: AutonomyController;
+  approvalManager?: ApprovalManager;
+  personalityEngine?: PersonalityEngine;
   hybridInterpreter?: HybridHeuristicInterpreter;
+  styleRAG?: OwnerStyleRAG;
 }): FastifyInstance {
   const app = Fastify({ logger: false });
 
   app.register(cors, { origin: '*' });
 
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body: string, done) => {
+    if (!body || body.trim() === '') {
+      return done(null, {});
+    }
+    try {
+      done(null, JSON.parse(body));
+    } catch (err: any) {
+      done(err, undefined);
+    }
+  });
+
+  async function getTenantContainer(request: any): Promise<TenantRuntimeContainer | null> {
+    const authHeader = (request.headers.authorization as string) || '';
+    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    if (token) {
+      const tenant = await dependencies.tenantManager.getTenantByToken(token);
+      if (tenant) {
+        return dependencies.tenantManager.getOrCreateRuntime(tenant);
+      }
+    }
+    const admin = await dependencies.storage.getTenantByUsername('admin');
+    if (admin) {
+      return dependencies.tenantManager.getOrCreateRuntime(admin);
+    }
+    return null;
+  }
+
+  // Auth Endpoints
+  app.post('/api/auth/register', async (request, reply) => {
+    const { name, username, password } = request.body as any;
+    const res = await dependencies.tenantManager.register(name, username, password);
+    if (!res.success) return reply.status(400).send(res);
+    return res;
+  });
+
+  app.post('/api/auth/login', async (request, reply) => {
+    const { username, password } = request.body as any;
+    const res = await dependencies.tenantManager.login(username, password);
+    if (!res.success) return reply.status(400).send(res);
+    return res;
+  });
+
+  app.get('/api/auth/me', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    if (!container) return reply.status(401).send({ error: 'Não autenticado' });
+    return {
+      authenticated: true,
+      tenant: {
+        id: container.tenant.id,
+        name: container.tenant.name,
+        username: container.tenant.username,
+      },
+    };
+  });
+
   // 1. Overview & Metrics
-  app.get('/api/overview', async () => {
-    const auditLogs = await dependencies.storage.getAuditLogs(100);
-    const pendingTasks = await dependencies.storage.getPendingTasks('pending');
-    const pendingApprovals = await dependencies.approvalManager.getPending();
-    const gatewayStatus = dependencies.gateway ? dependencies.gateway.getStatus() : { status: 'mocked', qr: null };
-    const globalMode = dependencies.autonomyController.getGlobalMode();
+  app.get('/api/overview', async (request) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+
+    const auditLogs = await dependencies.storage.getAuditLogs(100, tenantId);
+    const pendingTasks = await dependencies.storage.getPendingTasks('pending', tenantId);
+    const pendingApprovals = container
+      ? await container.approvalManager.getPending()
+      : dependencies.approvalManager
+      ? await dependencies.approvalManager.getPending()
+      : [];
+
+    const gateway = container ? container.gateway : dependencies.gateway;
+    const gatewayStatus = gateway ? gateway.getStatus() : { status: 'mocked', qr: null };
+
+    const autonomy = container ? container.autonomyController : dependencies.autonomyController;
+    const globalMode = autonomy ? autonomy.getGlobalMode() : 'AUTONOMOUS_CONTROLLED';
+    const maxDailyAutoReplies = autonomy ? autonomy.getMaxDailyAutoReplies() : 30;
 
     const autoRepliesCount = auditLogs.filter((a) => a.finalDecision === 'AUTO_REPLY').length;
 
     return {
+      tenantName: container?.tenant.name || 'Padrão',
+      tenantUsername: container?.tenant.username || 'admin',
       globalMode,
-      maxDailyAutoReplies: dependencies.autonomyController.getMaxDailyAutoReplies(),
+      maxDailyAutoReplies,
       gatewayStatus,
       totalMessagesAnalyzed: auditLogs.length,
       autoRepliesSent: autoRepliesCount,
@@ -42,19 +115,22 @@ export function createServer(dependencies: {
   });
 
   // 2. Gateway Status & QR
-  app.get('/api/gateway/status', async () => {
-    if (!dependencies.gateway) {
+  app.get('/api/gateway/status', async (request) => {
+    const container = await getTenantContainer(request);
+    const gw = container ? container.gateway : dependencies.gateway;
+    if (!gw) {
       return { status: 'mocked', qr: null, qrDataUrl: null, reconnectAttempts: 0 };
     }
-    const status = dependencies.gateway.getStatus();
-    const qrDataUrl = await dependencies.gateway.getQrDataUrl();
+    const status = gw.getStatus();
+    const qrDataUrl = await gw.getQrDataUrl();
     return { ...status, qrDataUrl };
   });
 
-  app.post('/api/gateway/connect', async () => {
-    if (dependencies.gateway) {
-      // Start gateway asynchronously
-      dependencies.gateway.start().catch((err) => {
+  app.post('/api/gateway/connect', async (request) => {
+    const container = await getTenantContainer(request);
+    const gw = container ? container.gateway : dependencies.gateway;
+    if (gw) {
+      gw.start().catch((err) => {
         console.error('[WhatsAppGateway] Erro ao iniciar:', err);
       });
       return { success: true, message: 'Iniciando conexão com WhatsApp...' };
@@ -62,134 +138,175 @@ export function createServer(dependencies: {
     return { success: false, error: 'Gateway não configurado' };
   });
 
-  // 3. Autonomy Configuration & Emergency Switch
-  app.get('/api/autonomy', async () => {
+  // 3. Autonomy Configuration & Limits
+  app.get('/api/autonomy', async (request) => {
+    const container = await getTenantContainer(request);
+    const autonomy = container ? container.autonomyController : dependencies.autonomyController;
     return {
-      mode: dependencies.autonomyController.getGlobalMode(),
-      maxDailyAutoReplies: dependencies.autonomyController.getMaxDailyAutoReplies(),
+      mode: autonomy ? autonomy.getGlobalMode() : 'AUTONOMOUS_CONTROLLED',
+      maxDailyAutoReplies: autonomy ? autonomy.getMaxDailyAutoReplies() : 30,
     };
   });
 
   app.post('/api/autonomy/limit', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const autonomy = container ? container.autonomyController : dependencies.autonomyController;
+    if (!autonomy) return reply.status(400).send({ error: 'Controller indisponível' });
     const { limit } = request.body as { limit: number };
     const num = Number(limit);
     if (!num || num < 1 || num > 500) {
       return reply.status(400).send({ error: 'Limite diário deve ser um número entre 1 e 500.' });
     }
-    dependencies.autonomyController.setMaxDailyAutoReplies(num);
+    autonomy.setMaxDailyAutoReplies(num);
     return { success: true, maxDailyAutoReplies: num };
   });
 
-  app.post('/api/contacts/reset-quotas', async () => {
-    // Reset quotas for all contacts
-    const overview = await dependencies.storage.getAuditLogs(500);
+  app.post('/api/contacts/reset-quotas', async (request) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    const overview = await dependencies.storage.getAuditLogs(500, tenantId);
     const contactIds = Array.from(new Set(overview.map((o) => o.contactId)));
     for (const cid of contactIds) {
-      const mem = await dependencies.storage.getContactMemory(cid);
+      const mem = await dependencies.storage.getContactMemory(cid, tenantId);
       if (mem) {
         mem.autoRepliesToday = 0;
-        await dependencies.storage.saveContactMemory(mem);
+        await dependencies.storage.saveContactMemory(mem, tenantId);
       }
     }
     return { success: true, message: 'Cotas diárias zeradas com sucesso.' };
   });
 
   app.post('/api/autonomy/mode', async (request, reply) => {
-    const { mode } = request.body as { mode: 'AUTONOMOUS_CONTROLLED' | 'MANUAL_ONLY' | 'EMERGENCY_STOP' };
+    const container = await getTenantContainer(request);
+    const autonomy = container ? container.autonomyController : dependencies.autonomyController;
+    if (!autonomy) return reply.status(400).send({ error: 'Controller indisponível' });
+    const { mode } = request.body as { mode: any };
     if (!['AUTONOMOUS_CONTROLLED', 'MANUAL_ONLY', 'EMERGENCY_STOP'].includes(mode)) {
       return reply.status(400).send({ error: 'Modo inválido' });
     }
-    dependencies.autonomyController.setGlobalMode(mode);
+    autonomy.setGlobalMode(mode);
     return { success: true, mode };
   });
 
   // 4. Approvals
-  app.get('/api/approvals', async () => {
-    return dependencies.approvalManager.getPending();
+  app.get('/api/approvals', async (request) => {
+    const container = await getTenantContainer(request);
+    if (container) return container.approvalManager.getPending();
+    return dependencies.approvalManager ? dependencies.approvalManager.getPending() : [];
   });
 
   app.post('/api/approvals/:id/approve', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const mgr = container ? container.approvalManager : dependencies.approvalManager;
+    if (!mgr) return reply.status(400).send({ error: 'Manager indisponível' });
     const { id } = request.params as { id: string };
-    const result = await dependencies.approvalManager.approve(id);
+    const result = await mgr.approve(id);
     if (!result.success) return reply.status(400).send(result);
     return result;
   });
 
   app.post('/api/approvals/:id/edit', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const mgr = container ? container.approvalManager : dependencies.approvalManager;
+    if (!mgr) return reply.status(400).send({ error: 'Manager indisponível' });
     const { id } = request.params as { id: string };
     const { editedResponse } = request.body as { editedResponse: string };
-    const result = await dependencies.approvalManager.editAndApprove(id, editedResponse);
+    const result = await mgr.editAndApprove(id, editedResponse);
     if (!result.success) return reply.status(400).send(result);
     return result;
   });
 
   app.post('/api/approvals/:id/reject', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const mgr = container ? container.approvalManager : dependencies.approvalManager;
+    if (!mgr) return reply.status(400).send({ error: 'Manager indisponível' });
     const { id } = request.params as { id: string };
-    const result = await dependencies.approvalManager.reject(id);
+    const result = await mgr.reject(id);
     if (!result.success) return reply.status(400).send(result);
     return result;
   });
 
   // 5. Smart Inbox / Pending Tasks
-  app.get('/api/inbox/tasks', async () => {
-    return dependencies.storage.getPendingTasks();
+  app.get('/api/inbox/tasks', async (request) => {
+    const container = await getTenantContainer(request);
+    return dependencies.storage.getPendingTasks(undefined, container?.tenant.id);
   });
 
   app.patch('/api/inbox/tasks/:id', async (request) => {
+    const container = await getTenantContainer(request);
     const { id } = request.params as { id: string };
     const { state } = request.body as { state: 'pending' | 'resolved' | 'dismissed' };
-    await dependencies.storage.updatePendingTaskState(id, state);
+    await dependencies.storage.updatePendingTaskState(id, state, container?.tenant.id);
     return { success: true };
   });
 
   // 6. Memory & Contacts
   app.get('/api/contacts/:id/memory', async (request, reply) => {
+    const container = await getTenantContainer(request);
     const { id } = request.params as { id: string };
-    const memory = await dependencies.storage.getContactMemory(id);
+    const memory = await dependencies.storage.getContactMemory(id, container?.tenant.id);
     if (!memory) return reply.status(404).send({ error: 'Contato não encontrado' });
     return memory;
   });
 
   app.post('/api/contacts/:id/memory', async (request) => {
+    const container = await getTenantContainer(request);
     const { id } = request.params as { id: string };
     const body = request.body as any;
-    await dependencies.storage.saveContactMemory({ ...body, contactId: id });
+    await dependencies.storage.saveContactMemory({ ...body, contactId: id }, container?.tenant.id);
     return { success: true };
   });
 
   // 7. Audit Trail
-  app.get('/api/audit', async () => {
-    return dependencies.storage.getAuditLogs(100);
+  app.get('/api/audit', async (request) => {
+    const container = await getTenantContainer(request);
+    return dependencies.storage.getAuditLogs(100, container?.tenant.id);
   });
 
   // 8. Custom Heuristic Keywords & Hybrid Interpreter
-  app.get('/api/heuristics/keywords', async () => {
-    if (dependencies.hybridInterpreter) {
-      return dependencies.hybridInterpreter.getActiveRules();
+  app.get('/api/heuristics/keywords', async (request) => {
+    const container = await getTenantContainer(request);
+    const interpreter = container ? container.hybridInterpreter : dependencies.hybridInterpreter;
+    if (interpreter) {
+      return interpreter.getActiveRules();
     }
-    return dependencies.storage.getKeywordRules();
+    return dependencies.storage.getKeywordRules(container?.tenant.id);
   });
 
   app.post('/api/heuristics/keywords', async (request, reply) => {
+    const container = await getTenantContainer(request);
     const { word, category, weight, description } = request.body as any;
     if (!word || !category) {
       return reply.status(400).send({ error: 'Palavra e categoria são obrigatórias' });
     }
     const rule: HeuristicKeywordRule = {
       id: `kw-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tenantId: container?.tenant.id,
       word: word.trim().toLowerCase(),
       category: category as any,
       weight: Number(weight) || (category === 'high_confidence' ? 95 : 75),
       description: description || 'Regra cadastrada pelo usuário',
     };
-    await dependencies.storage.saveKeywordRule(rule);
+    await dependencies.storage.saveKeywordRule(rule, container?.tenant.id);
     return { success: true, rule };
   });
 
-  app.delete('/api/heuristics/keywords/:id', async (request, reply) => {
+  app.delete('/api/heuristics/keywords/:id', async (request) => {
+    const container = await getTenantContainer(request);
     const { id } = request.params as { id: string };
-    const deleted = await dependencies.storage.deleteKeywordRule(id);
+    const deleted = await dependencies.storage.deleteKeywordRule(id, container?.tenant.id);
     return { success: deleted };
+  });
+
+  // 9. Owner Style Metrics & RAG Info
+  app.get('/api/style/metrics', async (request) => {
+    const container = await getTenantContainer(request);
+    const rag = container ? container.styleRAG : dependencies.styleRAG;
+    if (!rag) {
+      return { totalAnalyzedMessages: 0, averageWordCount: 8, lowercaseRatio: 0.9, frequentSlang: [] };
+    }
+    const sample = rag.retrieveStyleContext('', '');
+    return sample.metrics;
   });
 
   // 9. Serve Embedded Dashboard HTML
@@ -238,7 +355,7 @@ export function createServer(dependencies: {
 <body>
   <header>
     <div>
-      <h1>Personal WhatsApp AI</h1>
+      <h1>Personal WhatsApp AI <span id="tenant-tag" style="font-size: 13px; font-weight: normal; color: var(--muted); margin-left: 8px;"></span></h1>
       <p style="color: var(--muted); font-size: 13px; margin-top: 4px;">Autonomous Controlled Personal Communication Agent</p>
     </div>
     <div class="controls">
@@ -248,8 +365,32 @@ export function createServer(dependencies: {
       <button onclick="setMode('AUTONOMOUS_CONTROLLED')">Modo Autônomo</button>
       <button onclick="setMode('MANUAL_ONLY')">Apenas Manual</button>
       <button class="btn-danger" onclick="setMode('EMERGENCY_STOP')">Pânico / Parar Tudo</button>
+      <button onclick="logout()" style="border-color: #EF4444; color: #EF4444;">Sair</button>
     </div>
   </header>
+
+  <div id="auth-overlay" style="display: none; position: fixed; inset: 0; background: rgba(7, 8, 11, 0.95); z-index: 9999; display: flex; align-items: center; justify-content: center;">
+    <div style="background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 32px; width: 100%; max-width: 420px; box-shadow: 0 20px 40px rgba(0,0,0,0.8);">
+      <h2 style="font-size: 20px; margin-bottom: 6px; text-align: center;">Personal WhatsApp AI</h2>
+      <p style="color: var(--muted); font-size: 13px; text-align: center; margin-bottom: 20px;">Acesso ao Cockpit</p>
+      
+      <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+        <button id="tab-login" style="flex: 1; border: none; background: transparent; color: var(--accent); font-weight: bold; border-bottom: 2px solid var(--accent); border-radius: 0; padding-bottom: 6px;" onclick="switchAuthTab('login')">Já tenho conta (Entrar)</button>
+        <button id="tab-register" style="flex: 1; border: none; background: transparent; color: var(--muted); border-radius: 0; padding-bottom: 6px;" onclick="switchAuthTab('register')">Criar nova conta</button>
+      </div>
+
+      <div id="auth-error" style="display: none; color: #EF4444; font-size: 12px; margin-bottom: 12px; text-align: center;"></div>
+      
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <input id="auth-name" type="text" placeholder="Seu Nome Completo (ex: Ângelo Miguel)" style="display: none; padding: 10px 14px; background: #07080B; border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px;" />
+        <input id="auth-user" type="text" placeholder="Nome de usuário (ex: admin ou omigueldev)" style="padding: 10px 14px; background: #07080B; border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px;" />
+        <input id="auth-pass" type="password" placeholder="Sua Senha de Acesso" style="padding: 10px 14px; background: #07080B; border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px;" />
+        
+        <button id="btn-auth-submit" style="margin-top: 8px; padding: 12px; background: #22C55E; color: #07080B; font-weight: bold; border: none; border-radius: 6px; cursor: pointer;" onclick="handleAuthSubmit()">Entrar</button>
+      </div>
+      <p style="color: var(--muted); font-size: 11px; text-align: center; margin-top: 16px;">Sua sessão fica salva nesta aba e sincroniza os dados do seu WhatsApp.</p>
+    </div>
+  </div>
 
   <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
     <div>
@@ -357,9 +498,125 @@ export function createServer(dependencies: {
   </div>
 
   <script>
-    async function loadData() {
+    function getAuthHeaders(includeContentType = false) {
+      const token = localStorage.getItem('tenant_token') || sessionStorage.getItem('tenant_token');
+      const headers = {};
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      if (includeContentType) headers['Content-Type'] = 'application/json';
+      return headers;
+    }
+
+    async function checkAuth() {
+      const token = localStorage.getItem('tenant_token') || sessionStorage.getItem('tenant_token');
+      const overlay = document.getElementById('auth-overlay');
+      if (!token) {
+        overlay.style.display = 'flex';
+        return false;
+      }
       try {
-        const res = await fetch('/api/overview');
+        const res = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+        if (!res.ok) {
+          localStorage.removeItem('tenant_token');
+          sessionStorage.removeItem('tenant_token');
+          overlay.style.display = 'flex';
+          return false;
+        }
+        const data = await res.json();
+        overlay.style.display = 'none';
+        document.getElementById('tenant-tag').textContent = '[' + data.tenant.name + ' - @' + data.tenant.username + ']';
+        return true;
+      } catch {
+        overlay.style.display = 'flex';
+        return false;
+      }
+    }
+
+    let currentAuthMode = 'login';
+
+    function switchAuthTab(mode) {
+      currentAuthMode = mode;
+      const tabLogin = document.getElementById('tab-login');
+      const tabRegister = document.getElementById('tab-register');
+      const nameInput = document.getElementById('auth-name');
+      const btnSubmit = document.getElementById('btn-auth-submit');
+      const errBox = document.getElementById('auth-error');
+      errBox.style.display = 'none';
+
+      if (mode === 'login') {
+        tabLogin.style.color = 'var(--accent)';
+        tabLogin.style.fontWeight = 'bold';
+        tabLogin.style.borderBottom = '2px solid var(--accent)';
+        tabRegister.style.color = 'var(--muted)';
+        tabRegister.style.fontWeight = 'normal';
+        tabRegister.style.borderBottom = 'none';
+        nameInput.style.display = 'none';
+        btnSubmit.textContent = 'Entrar na Conta';
+      } else {
+        tabRegister.style.color = 'var(--accent)';
+        tabRegister.style.fontWeight = 'bold';
+        tabRegister.style.borderBottom = '2px solid var(--accent)';
+        tabLogin.style.color = 'var(--muted)';
+        tabLogin.style.fontWeight = 'normal';
+        tabLogin.style.borderBottom = 'none';
+        nameInput.style.display = 'block';
+        btnSubmit.textContent = 'Criar Conta e Acessar';
+      }
+    }
+
+    async function handleAuthSubmit() {
+      const name = document.getElementById('auth-name').value.trim();
+      const username = document.getElementById('auth-user').value.trim();
+      const password = document.getElementById('auth-pass').value.trim();
+      const errBox = document.getElementById('auth-error');
+
+      errBox.style.display = 'none';
+      if (!username || !password) {
+        errBox.textContent = 'Preencha usuário e senha';
+        errBox.style.display = 'block';
+        return;
+      }
+
+      const endpoint = currentAuthMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+      const payload = currentAuthMode === 'login'
+        ? { username, password }
+        : { name: name || username, username, password };
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.success && data.token) {
+        localStorage.setItem('tenant_token', data.token);
+        sessionStorage.setItem('tenant_token', data.token);
+        document.getElementById('auth-overlay').style.display = 'none';
+        checkAuth();
+        loadData();
+      } else {
+        errBox.textContent = data.error || 'Erro na autenticação. Verifique usuário e senha.';
+        errBox.style.display = 'block';
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('tenant_token');
+      sessionStorage.removeItem('tenant_token');
+      location.reload();
+    }
+
+    async function loadData() {
+      if (!localStorage.getItem('tenant_token') && !sessionStorage.getItem('tenant_token')) {
+        document.getElementById('auth-overlay').style.display = 'flex';
+        return;
+      }
+      try {
+        const res = await fetch('/api/overview', { headers: getAuthHeaders() });
+        if (res.status === 401) {
+          logout();
+          return;
+        }
         const data = await res.json();
         document.getElementById('metric-analyzed').textContent = data.totalMessagesAnalyzed;
         document.getElementById('metric-autoreplies').textContent = data.autoRepliesSent;
@@ -372,7 +629,7 @@ export function createServer(dependencies: {
         }
         
         // Check Gateway QR Status
-        const gwRes = await fetch('/api/gateway/status');
+        const gwRes = await fetch('/api/gateway/status', { headers: getAuthHeaders() });
         const gwData = await gwRes.json();
         const qrContainer = document.getElementById('qr-container');
         const qrImage = document.getElementById('qr-image');
@@ -402,7 +659,7 @@ export function createServer(dependencies: {
         }
 
         // Load Approvals
-        const appRes = await fetch('/api/approvals');
+        const appRes = await fetch('/api/approvals', { headers: getAuthHeaders() });
         const approvals = await appRes.json();
         const appBody = document.getElementById('approvals-body');
         if (approvals.length === 0) {
@@ -423,7 +680,7 @@ export function createServer(dependencies: {
         }
 
         // Load Heuristic Keywords
-        const kwRes = await fetch('/api/heuristics/keywords');
+        const kwRes = await fetch('/api/heuristics/keywords', { headers: getAuthHeaders() });
         const keywords = await kwRes.json();
         const kwBody = document.getElementById('keywords-body');
         if (keywords.length === 0) {
@@ -446,7 +703,7 @@ export function createServer(dependencies: {
         }
 
         // Load Audit Logs
-        const auditRes = await fetch('/api/audit');
+        const auditRes = await fetch('/api/audit', { headers: getAuthHeaders() });
         const logs = await auditRes.json();
         const auditBody = document.getElementById('audit-body');
         if (logs.length === 0) {
@@ -469,26 +726,26 @@ export function createServer(dependencies: {
     }
 
     async function connectWhatsApp() {
-      await fetch('/api/gateway/connect', { method: 'POST' });
+      await fetch('/api/gateway/connect', { method: 'POST', headers: getAuthHeaders(true), body: '{}' });
       loadData();
     }
 
     async function setMode(mode) {
       await fetch('/api/autonomy/mode', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ mode })
       });
       loadData();
     }
 
     async function approve(id) {
-      await fetch(\`/api/approvals/\${id}/approve\`, { method: 'POST' });
+      await fetch(\`/api/approvals/\${id}/approve\`, { method: 'POST', headers: getAuthHeaders() });
       loadData();
     }
 
     async function reject(id) {
-      await fetch(\`/api/approvals/\${id}/reject\`, { method: 'POST' });
+      await fetch(\`/api/approvals/\${id}/reject\`, { method: 'POST', headers: getAuthHeaders() });
       loadData();
     }
 
@@ -500,7 +757,7 @@ export function createServer(dependencies: {
 
       await fetch('/api/heuristics/keywords', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ word, category: cat.value })
       });
       input.value = '';
@@ -508,7 +765,7 @@ export function createServer(dependencies: {
     }
 
     async function deleteKeyword(id) {
-      await fetch(\`/api/heuristics/keywords/\${id}\`, { method: 'DELETE' });
+      await fetch(\`/api/heuristics/keywords/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
       loadData();
     }
 
@@ -519,20 +776,20 @@ export function createServer(dependencies: {
 
       await fetch('/api/autonomy/limit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ limit: val })
       });
       loadData();
     }
 
     async function resetQuotas() {
-      await fetch('/api/contacts/reset-quotas', { method: 'POST' });
+      await fetch('/api/contacts/reset-quotas', { method: 'POST', headers: getAuthHeaders() });
       alert('Cotas diárias de todos os contatos foram zeradas!');
       loadData();
     }
 
     setInterval(loadData, 3000);
-    loadData();
+    checkAuth().then((authed) => { if (authed) loadData(); });
   </script>
 </body>
 </html>`;

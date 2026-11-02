@@ -8,6 +8,7 @@ import {
   ApprovalQueueItem,
   AuditLogEntry,
   HeuristicKeywordRule,
+  TenantUser,
 } from '../types/index.js';
 
 export class MemoryFileStorageAdapter implements StorageAdapter {
@@ -19,6 +20,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   private auditLogs: AuditLogEntry[] = [];
   private sentMessages: Set<string> = new Set();
   private keywordRules: Map<string, HeuristicKeywordRule> = new Map();
+  private tenants: Map<string, TenantUser> = new Map();
   private writeLock: Promise<void> = Promise.resolve();
   private initialized = false;
 
@@ -64,6 +66,28 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       if (parsed.keywordRules) {
         for (const r of parsed.keywordRules) this.keywordRules.set(r.id, r);
       }
+      if (parsed.tenants) {
+        for (const t of parsed.tenants) this.tenants.set(t.id, t);
+      }
+
+      // Migração automática de registros legados pré-multi-tenant para a conta principal
+      const primaryTenant = Array.from(this.tenants.values()).find(
+        (t) => t.username === 'admin' || t.username === 'omigueldev'
+      );
+      if (primaryTenant) {
+        for (const m of this.messages.values()) {
+          if (!m.tenantId) m.tenantId = primaryTenant.id;
+        }
+        for (const a of this.auditLogs) {
+          if (!a.tenantId) a.tenantId = primaryTenant.id;
+        }
+        for (const t of this.pendingTasks.values()) {
+          if (!t.tenantId) t.tenantId = primaryTenant.id;
+        }
+        for (const ap of this.approvals.values()) {
+          if (!ap.tenantId) ap.tenantId = primaryTenant.id;
+        }
+      }
     } catch {
       // file might not exist initially, safe to start empty
     }
@@ -90,6 +114,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       auditLogs: this.auditLogs.slice(-2000),
       sentMessages: Array.from(this.sentMessages),
       keywordRules: Array.from(this.keywordRules.values()),
+      tenants: Array.from(this.tenants.values()),
     };
 
     try {
@@ -108,80 +133,134 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
     }
   }
 
+  // Tenants & Auth
+  async createTenant(user: TenantUser): Promise<void> {
+    this.tenants.set(user.id, user);
+    await this.persistAll();
+  }
+
+  async getTenantByUsername(username: string): Promise<TenantUser | null> {
+    for (const t of this.tenants.values()) {
+      if (t.username.toLowerCase() === username.toLowerCase()) return t;
+    }
+    return null;
+  }
+
+  async getTenantById(id: string): Promise<TenantUser | null> {
+    return this.tenants.get(id) || null;
+  }
+
   // Messages
-  async saveMessage(msg: NormalizedMessage): Promise<void> {
+  async saveMessage(msg: NormalizedMessage, tenantId?: string): Promise<void> {
+    if (tenantId) msg.tenantId = tenantId;
     this.messages.set(msg.id, msg);
     await this.persistAll();
   }
 
-  async getMessage(id: string): Promise<NormalizedMessage | null> {
-    return this.messages.get(id) || null;
+  async getMessage(id: string, tenantId?: string): Promise<NormalizedMessage | null> {
+    const m = this.messages.get(id);
+    if (!m) return null;
+    if (tenantId && m.tenantId && m.tenantId !== tenantId) return null;
+    return m;
   }
 
-  async getRecentMessages(contactId: string, limit: number = 20): Promise<NormalizedMessage[]> {
+  async getRecentMessages(contactId: string, limit: number = 20, tenantId?: string): Promise<NormalizedMessage[]> {
+    const primaryIds = Array.from(this.tenants.values())
+      .filter((t) => t.username === 'admin' || t.username === 'omigueldev')
+      .map((t) => t.id);
+    const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
+
     const list = Array.from(this.messages.values())
-      .filter((m) => m.contactId === contactId)
+      .filter((m) => {
+        const contactMatch = !contactId || m.contactId === contactId;
+        if (!contactMatch) return false;
+        if (isPrimaryQuery) {
+          return !m.tenantId || primaryIds.includes(m.tenantId) || m.tenantId === tenantId;
+        }
+        return m.tenantId === tenantId;
+      })
       .sort((a, b) => a.timestamp - b.timestamp);
     return list.slice(-limit);
   }
 
-  async hasMessage(id: string): Promise<boolean> {
-    return this.messages.has(id);
+  async hasMessage(id: string, tenantId?: string): Promise<boolean> {
+    const m = this.messages.get(id);
+    if (!m) return false;
+    if (tenantId && m.tenantId && m.tenantId !== tenantId) return false;
+    return true;
   }
 
   // Contact Memory
-  async getContactMemory(contactId: string): Promise<ContactMemory | null> {
-    return this.contactMemories.get(contactId) || null;
+  async getContactMemory(contactId: string, tenantId?: string): Promise<ContactMemory | null> {
+    const key = tenantId ? `${tenantId}:${contactId}` : contactId;
+    return this.contactMemories.get(key) || this.contactMemories.get(contactId) || null;
   }
 
-  async saveContactMemory(mem: ContactMemory): Promise<void> {
-    this.contactMemories.set(mem.contactId, mem);
+  async saveContactMemory(mem: ContactMemory, tenantId?: string): Promise<void> {
+    if (tenantId) mem.tenantId = tenantId;
+    const key = tenantId ? `${tenantId}:${mem.contactId}` : mem.contactId;
+    this.contactMemories.set(key, mem);
     await this.persistAll();
   }
 
   // Pending Tasks
-  async savePendingTask(task: PendingTask): Promise<void> {
+  async savePendingTask(task: PendingTask, tenantId?: string): Promise<void> {
+    if (tenantId) task.tenantId = tenantId;
     this.pendingTasks.set(task.id, task);
     await this.persistAll();
   }
 
-  async getPendingTasks(status?: 'pending' | 'resolved' | 'dismissed'): Promise<PendingTask[]> {
-    const all = Array.from(this.pendingTasks.values());
+  async getPendingTasks(status?: 'pending' | 'resolved' | 'dismissed', tenantId?: string): Promise<PendingTask[]> {
+    const primaryIds = Array.from(this.tenants.values())
+      .filter((t) => t.username === 'admin' || t.username === 'omigueldev')
+      .map((t) => t.id);
+    const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
+
+    const all = Array.from(this.pendingTasks.values()).filter((t) => {
+      if (isPrimaryQuery) {
+        return !t.tenantId || primaryIds.includes(t.tenantId) || t.tenantId === tenantId;
+      }
+      return t.tenantId === tenantId;
+    });
     if (!status) return all;
     return all.filter((t) => t.state === status);
   }
 
-  async updatePendingTaskState(id: string, state: 'pending' | 'resolved' | 'dismissed'): Promise<void> {
+  async updatePendingTaskState(id: string, state: 'pending' | 'resolved' | 'dismissed', tenantId?: string): Promise<void> {
     const task = this.pendingTasks.get(id);
-    if (task) {
+    if (task && (!tenantId || task.tenantId === tenantId)) {
       task.state = state;
       await this.persistAll();
     }
   }
 
   // Approvals
-  async saveApprovalItem(item: ApprovalQueueItem): Promise<void> {
+  async saveApprovalItem(item: ApprovalQueueItem, tenantId?: string): Promise<void> {
+    if (tenantId) item.tenantId = tenantId;
     this.approvals.set(item.id, item);
     await this.persistAll();
   }
 
-  async getApprovalItem(id: string): Promise<ApprovalQueueItem | null> {
-    return this.approvals.get(id) || null;
+  async getApprovalItem(id: string, tenantId?: string): Promise<ApprovalQueueItem | null> {
+    const item = this.approvals.get(id) || null;
+    if (item && tenantId && item.tenantId && item.tenantId !== tenantId) return null;
+    return item;
   }
 
-  async getPendingApprovals(): Promise<ApprovalQueueItem[]> {
+  async getPendingApprovals(tenantId?: string): Promise<ApprovalQueueItem[]> {
     return Array.from(this.approvals.values())
-      .filter((a) => a.status === 'pending')
+      .filter((a) => a.status === 'pending' && (!tenantId || a.tenantId === tenantId))
       .sort((a, b) => b.createdAt - a.createdAt);
   }
 
   async updateApprovalStatus(
     id: string,
     status: 'approved' | 'rejected' | 'edited',
-    editedResponse?: string
+    editedResponse?: string,
+    tenantId?: string
   ): Promise<void> {
     const item = this.approvals.get(id);
-    if (item) {
+    if (item && (!tenantId || item.tenantId === tenantId)) {
       item.status = status;
       item.handledAt = Date.now();
       if (editedResponse !== undefined) {
@@ -192,40 +271,60 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   }
 
   // Audit Logs
-  async saveAuditLog(entry: AuditLogEntry): Promise<void> {
+  async saveAuditLog(entry: AuditLogEntry, tenantId?: string): Promise<void> {
+    if (tenantId) entry.tenantId = tenantId;
     this.auditLogs.push(entry);
     await this.persistAll();
   }
 
-  async getAuditLogs(limit: number = 100): Promise<AuditLogEntry[]> {
-    return this.auditLogs.slice(-limit).reverse();
+  async getAuditLogs(limit: number = 100, tenantId?: string): Promise<AuditLogEntry[]> {
+    const primaryIds = Array.from(this.tenants.values())
+      .filter((t) => t.username === 'admin' || t.username === 'omigueldev')
+      .map((t) => t.id);
+    const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
+
+    const filtered = this.auditLogs.filter((a) => {
+      if (isPrimaryQuery) {
+        return !a.tenantId || primaryIds.includes(a.tenantId) || a.tenantId === tenantId;
+      }
+      return a.tenantId === tenantId;
+    });
+
+    return filtered.slice(-limit).reverse();
   }
 
   // Idempotency
-  async recordSentMessage(messageId: string, contactId: string, text: string): Promise<boolean> {
-    if (this.sentMessages.has(messageId)) {
+  async recordSentMessage(messageId: string, contactId: string, text: string, tenantId?: string): Promise<boolean> {
+    const key = tenantId ? `${tenantId}:${messageId}` : messageId;
+    if (this.sentMessages.has(key)) {
       return false;
     }
-    this.sentMessages.add(messageId);
+    this.sentMessages.add(key);
     await this.persistAll();
     return true;
   }
 
-  async isMessageAlreadySent(messageId: string): Promise<boolean> {
-    return this.sentMessages.has(messageId);
+  async isMessageAlreadySent(messageId: string, tenantId?: string): Promise<boolean> {
+    const key = tenantId ? `${tenantId}:${messageId}` : messageId;
+    return this.sentMessages.has(key) || this.sentMessages.has(messageId);
   }
 
   // Custom Heuristic Keyword Rules
-  async getKeywordRules(): Promise<HeuristicKeywordRule[]> {
-    return Array.from(this.keywordRules.values());
+  async getKeywordRules(tenantId?: string): Promise<HeuristicKeywordRule[]> {
+    const all = Array.from(this.keywordRules.values());
+    if (!tenantId) return all;
+    return all.filter((r) => !r.tenantId || r.tenantId === tenantId);
   }
 
-  async saveKeywordRule(rule: HeuristicKeywordRule): Promise<void> {
+  async saveKeywordRule(rule: HeuristicKeywordRule, tenantId?: string): Promise<void> {
+    if (tenantId) rule.tenantId = tenantId;
     this.keywordRules.set(rule.id, rule);
     await this.persistAll();
   }
 
-  async deleteKeywordRule(id: string): Promise<boolean> {
+  async deleteKeywordRule(id: string, tenantId?: string): Promise<boolean> {
+    const rule = this.keywordRules.get(id);
+    if (rule && tenantId && rule.tenantId && rule.tenantId !== tenantId) return false;
     const deleted = this.keywordRules.delete(id);
     if (deleted) {
       await this.persistAll();

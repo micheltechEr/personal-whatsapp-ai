@@ -60,6 +60,11 @@ export function extractMessageContent(message: proto.IMessage | null | undefined
     return { content: title, type: 'document' };
   }
 
+  // Sticker / Figurinha
+  if (message.stickerMessage) {
+    return { content: '[Figurinha]', type: 'other' };
+  }
+
   // Protocol / reaction / ephemeral
   if (message.protocolMessage) {
     return { content: '[Mensagem do Sistema]', type: 'other' };

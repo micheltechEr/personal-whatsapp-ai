@@ -53,7 +53,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
     );
   });
 
-  const waitForProcess = () => new Promise((r) => setTimeout(r, 80));
+  const waitForProcess = () => new Promise((r) => setTimeout(r, 450));
 
   afterEach(async () => {
     await storage.close();
@@ -84,7 +84,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
     };
 
     await processor.onIncomingMessage(msg);
-    await new Promise((r) => setTimeout(r, 120));
+    await waitForProcess();
 
     const audit = (await storage.getAuditLogs()).find((a) => a.messageId === 'msg-saudacao');
     expect(audit).toBeDefined();

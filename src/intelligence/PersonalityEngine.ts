@@ -80,10 +80,15 @@ export class PersonalityEngine {
       }
     }
 
-    // Adapt to contact formality
-    if (contactMemory.formalityLevel === 'high') {
-      // Clean excessive informal punctuation or slang
-      formatted = formatted.replace(/\b(e\s+a[íi]|opa|show|tranquilo|mano|cara)\b/gi, 'olá');
+    // Adapt to contact formality & relationship dynamics
+    if (contactMemory.relationship === 'romantic') {
+      // PROIBIDO chamar parceira/namorada de gírias de brother: "mano", "vei", "cara", "irmão", "brother", "parceiro"
+      formatted = formatted.replace(/\b(mano|vei|véi|cara|brother|parceiro)\b/gi, '');
+      // Remove duplos espaços resultantes
+      formatted = formatted.replace(/\s{2,}/g, ' ').trim();
+    } else if (contactMemory.formalityLevel === 'high' || contactMemory.relationship === 'work' || contactMemory.relationship === 'professional') {
+      // Clean excessive informal slang for formal contacts
+      formatted = formatted.replace(/\b(e\s+a[íi]|opa|show|tranquilo|mano|cara|vei)\b/gi, 'olá');
     }
 
     return formatted;

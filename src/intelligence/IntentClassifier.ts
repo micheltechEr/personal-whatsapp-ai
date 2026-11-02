@@ -1,4 +1,5 @@
 import { OperationalAction } from '../types/index.js';
+import { JevClassifierClient, JevEvaluationResult } from './JevClassifierClient.js';
 
 export interface IntentAnalysis {
   intent: string;
@@ -8,9 +9,11 @@ export interface IntentAnalysis {
   operationalAction: OperationalAction;
   confidence: number;
   extractedDeadlines?: number;
+  jevEvaluation?: JevEvaluationResult;
 }
 
 export class IntentClassifier {
+  constructor(private jevClient?: JevClassifierClient) {}
   private urgentPatterns: RegExp[] = [
     /\b(urgente|urg[êe]ncia|emerg[êe]ncia|imediato|o\s+quanto\s+antes|r[áa]pido\s+por\s+favor|socorro|prioridade\s+m[áa]xima)\b/i,
   ];
@@ -32,8 +35,17 @@ export class IntentClassifier {
     const text = content.trim();
 
     // H03: Intelligent silence detection
-    // If just media without caption or meaningless reaction/empty
-    if (type !== 'text' && (!text || text === '[Imagem]' || text === '[Áudio]' || text === '[Vídeo]')) {
+    // If just media without caption or meaningless reaction/empty (incluindo figurinhas)
+    const isBareMedia =
+      type !== 'text' ||
+      !text ||
+      text === '[Figurinha]' ||
+      text.trim() === '[Figurinha]' ||
+      text === '[Imagem]' ||
+      text === '[Áudio]' ||
+      text === '[Vídeo]';
+
+    if (isBareMedia) {
       return {
         intent: 'MEDIA_SHARE_NO_TEXT',
         isQuestion: false,
@@ -55,6 +67,18 @@ export class IntentClassifier {
         isUrgent: false,
         requiresResponse: true,
         operationalAction: 'RESPONDER',
+        confidence: 98,
+      };
+    }
+
+    // H16: Farewell / Despedidas (tchau, até mais, boa noite, valeu falou) -> IGNORAR (Silêncio inteligente)
+    if (/\b(tchau|at[ée]\s+mais|at[ée]\s+logo|at[ée]\s+amanh[ãa]|fui|falou|boa\s+noite|dorme\s+bem)\b/i.test(text) && text.split(/\s+/).length <= 5) {
+      return {
+        intent: 'FAREWELL',
+        isQuestion: false,
+        isUrgent: false,
+        requiresResponse: false, // H16: Encerra a conversa sem mandar resposta sem sentido
+        operationalAction: 'IGNORAR',
         confidence: 98,
       };
     }
@@ -118,6 +142,44 @@ export class IntentClassifier {
       requiresResponse: true,
       operationalAction: 'RESPONDER',
       confidence: 88,
+    };
+  }
+
+  public classifyWithJev(
+    content: string,
+    type: string = 'text',
+    recentConversationContext: string = '',
+    jev?: JevEvaluationResult | null
+  ): IntentAnalysis {
+    const base = this.classify(content, type, recentConversationContext);
+    if (!jev) return base;
+
+    if (jev.intent === 'system_probing' || jev.isAttackOrProbing) {
+      return {
+        ...base,
+        intent: 'PROMPT_INJECTION',
+        requiresResponse: false,
+        operationalAction: 'IGNORAR',
+        confidence: Math.max(base.confidence, jev.intentConfidence),
+        jevEvaluation: jev,
+      };
+    }
+
+    if (jev.intent === 'commercial') {
+      return {
+        ...base,
+        intent: 'COMMERCIAL_INQUIRY',
+        requiresResponse: true,
+        operationalAction: 'RESPONDER',
+        confidence: Math.max(base.confidence, jev.intentConfidence),
+        jevEvaluation: jev,
+      };
+    }
+
+    return {
+      ...base,
+      confidence: Math.round((base.confidence + jev.intentConfidence) / 2),
+      jevEvaluation: jev,
     };
   }
 }
