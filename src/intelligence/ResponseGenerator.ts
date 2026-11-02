@@ -13,16 +13,21 @@ import { RiskAnalysis } from './RiskEngine.js';
 import { IntentAnalysis } from './IntentClassifier.js';
 import { PersonalityEngine } from './PersonalityEngine.js';
 
+import { VisionStickerInterpreter } from './VisionStickerInterpreter.js';
+
 export class ResponseGenerator {
   private llmClient: AgnosticLLMClient;
+  private visionInterpreter: VisionStickerInterpreter;
 
   constructor(
     private personalityEngine: PersonalityEngine,
     config?: LLMClientConfig,
     private hybridInterpreter?: HybridHeuristicInterpreter,
-    private styleRAG?: OwnerStyleRAG
+    private styleRAG?: OwnerStyleRAG,
+    visionInterpreter?: VisionStickerInterpreter
   ) {
     this.llmClient = new AgnosticLLMClient(config);
+    this.visionInterpreter = visionInterpreter || new VisionStickerInterpreter(config);
   }
 
   private async generateWithLLM(
@@ -110,7 +115,10 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
     }
 
     // H03: Intelligent silence
-    if (!intent.requiresResponse) {
+    // Se for figurinha COM imagem base64, NÃO silencia cegamente: envia para interpretação visual antes
+    const isStickerWithImage = message.type === 'sticker' && Boolean(message.mediaBase64);
+
+    if (!intent.requiresResponse && !isStickerWithImage) {
       return DecisionContractSchema.parse({
         message_id: message.id,
         contact_id: message.contactId,
@@ -260,6 +268,61 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         } else {
           suggested = generated;
         }
+      }
+    } else if (message.type === 'sticker' && message.mediaBase64) {
+      // Vision Mode: Interpreta a figurinha e responde com inteligência contextual
+      const stickerInfo = await this.visionInterpreter.interpretSticker(
+        message.mediaBase64,
+        message.mimetype || 'image/webp',
+        context.recentSummary
+      );
+
+      if (stickerInfo) {
+        if (stickerInfo.isReactionOnly) {
+          // Se for só uma reação sem conteúdo a ser estendido, aplica silêncio inteligente
+          return DecisionContractSchema.parse({
+            message_id: message.id,
+            contact_id: message.contactId,
+            intent: 'STICKER_SILENT_REACTION',
+            risk_level: 0,
+            decision: 'IGNORE',
+            confidence: { intent: 98, context: 95, factual: 99, response: 95 },
+            context_summary: `Figurinha recebida: ${stickerInfo.description}`,
+            reason: 'H03/H16: Figurinha de reação sem necessidade de resposta.',
+            suggested_response: '',
+            safety_flags: [],
+            requires_human: false,
+            memory_candidates: [],
+            operational_action: 'IGNORAR',
+          });
+        }
+
+        // Gera uma resposta natural baseada no que está desenhado/escrito na figurinha
+        const promptSticker = `O contato enviou esta figurinha no chat: "${stickerInfo.description}" (emoção/tom: ${stickerInfo.emotion}).`;
+        const generated = await this.generateWithLLM(
+          promptSticker,
+          context.recentSummary,
+          context.contactMemory.relationship,
+          message.contactId
+        );
+        suggested = generated || stickerInfo.suggestedReaction || 'Kkkkk boa';
+      } else {
+        // Se a interpretação falhar, silêncio inteligente padrão
+        return DecisionContractSchema.parse({
+          message_id: message.id,
+          contact_id: message.contactId,
+          intent: 'MEDIA_SHARE_NO_TEXT',
+          risk_level: 0,
+          decision: 'IGNORE',
+          confidence: { intent: 95, context: 90, factual: 90, response: 90 },
+          context_summary: context.recentSummary,
+          reason: 'H03: Figurinha recebida sem texto associado.',
+          suggested_response: '',
+          safety_flags: [],
+          requires_human: false,
+          memory_candidates: [],
+          operational_action: 'IGNORAR',
+        });
       }
     } else if (intent.intent === 'GREETING') {
       suggested = this.personalityEngine.getGreeting(context.contactMemory.relationship);

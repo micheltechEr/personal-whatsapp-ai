@@ -62,7 +62,7 @@ export function extractMessageContent(message: proto.IMessage | null | undefined
 
   // Sticker / Figurinha
   if (message.stickerMessage) {
-    return { content: '[Figurinha]', type: 'other' };
+    return { content: '[Figurinha]', type: 'sticker' };
   }
 
   // Protocol / reaction / ephemeral
@@ -109,6 +109,12 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     ? rawMsg.messageTimestamp * 1000
     : Date.now();
 
+  const mimetype =
+    rawMsg.message?.stickerMessage?.mimetype ||
+    rawMsg.message?.imageMessage?.mimetype ||
+    rawMsg.message?.audioMessage?.mimetype ||
+    undefined;
+
   return {
     id,
     contactId,
@@ -121,6 +127,7 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     fromMe: Boolean(key.fromMe),
     isGroup: false,
     type,
+    mimetype,
     raw: rawMsg,
   };
 }

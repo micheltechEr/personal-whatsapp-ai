@@ -63,8 +63,10 @@ export interface NormalizedMessage {
   timestamp: number;
   fromMe: boolean;
   isGroup: boolean;
-  type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'other';
+  type: 'text' | 'image' | 'audio' | 'video' | 'document' | 'sticker' | 'other';
   raw?: unknown;
+  mediaBase64?: string; // Imagem/Figurinha em base64 para o Vision Model
+  mimetype?: string;    // ex: image/webp
 }
 
 export interface ContactMemory {
