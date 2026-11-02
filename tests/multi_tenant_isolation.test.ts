@@ -46,6 +46,8 @@ describe('Multi-Tenant Architecture & Behavioral Isolation', () => {
     expect(r1).not.toBe(r2);
     expect(r1.gateway).not.toBe(r2.gateway);
     expect(r1.styleRAG).not.toBe(r2.styleRAG);
+    expect(r1.personalityEngine.getOwnerName()).toBe('User One');
+    expect(r2.personalityEngine.getOwnerName()).toBe('User Two');
     expect(r1.autonomyController).not.toBe(r2.autonomyController);
   });
 

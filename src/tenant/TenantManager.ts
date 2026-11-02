@@ -115,9 +115,9 @@ export class TenantManager {
       : path.join(this.baseAuthDir!, `tenant_${tenant.id}`);
     const gateway = new WhatsAppGateway(tenantAuthDir);
 
-    // 2. Motores de Inteligência e RAG isolados por tenant
-    const personalityEngine = new PersonalityEngine();
-    const styleRAG = new OwnerStyleRAG(this.storage);
+    // 2. Motores de Inteligência e RAG isolados por tenant com o nome real do usuário
+    const personalityEngine = new PersonalityEngine(tenant.name || tenant.username);
+    const styleRAG = new OwnerStyleRAG(this.storage, tenant.id);
     await styleRAG.init();
 
     const hybridInterpreter = new HybridHeuristicInterpreter(this.storage);

@@ -86,6 +86,13 @@ export class MessageProcessor extends EventEmitter {
     }
   }
 
+  public clearAllBuffers(): void {
+    for (const item of this.messageBuffer.values()) {
+      clearTimeout(item.timer);
+    }
+    this.messageBuffer.clear();
+  }
+
   public async processBatch(contactId: string): Promise<void> {
     const buffered = this.messageBuffer.get(contactId);
     this.messageBuffer.delete(contactId);

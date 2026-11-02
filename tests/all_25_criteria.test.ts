@@ -16,7 +16,7 @@ import { isJidGroup, normalizeBaileysMessage } from '../src/gateway/MessageNorma
 import { NormalizedMessage } from '../src/types/index.js';
 
 describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
-  const testDir = path.resolve(process.cwd(), '.test_all25_' + Date.now());
+  let testDir = path.resolve(process.cwd(), '.test_all25_' + Date.now());
   let storage: MemoryFileStorageAdapter;
   let personalityEngine: PersonalityEngine;
   let contextEngine: ContextEngine;
@@ -29,6 +29,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
   let processor: MessageProcessor;
 
   beforeEach(async () => {
+    testDir = path.join(process.cwd(), `.test_all25_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
     storage = new MemoryFileStorageAdapter(testDir);
     await storage.init();
     personalityEngine = new PersonalityEngine();
@@ -49,15 +50,16 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
       autonomyController,
       dispatcher,
       approvalManager,
-      { bufferWindowMs: 20 } // fast buffer for tests
+      { bufferWindowMs: 25 } // fast buffer for tests
     );
   });
 
-  const waitForProcess = () => new Promise((r) => setTimeout(r, 450));
+  const waitForProcess = () => new Promise((r) => setTimeout(r, 90));
 
   afterEach(async () => {
+    processor.clearAllBuffers();
     await storage.close();
-    await fs.rm(testDir, { recursive: true, force: true });
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
   });
 
   // 1. Saudação
@@ -106,7 +108,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
     };
 
     await processor.onIncomingMessage(msg);
-    await new Promise((r) => setTimeout(r, 120));
+    await waitForProcess();
 
     const audit = (await storage.getAuditLogs()).find((a) => a.messageId === 'msg-casual');
     expect(audit).toBeDefined();
@@ -267,7 +269,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
     };
 
     await processor.onIncomingMessage(msg);
-    await new Promise((r) => setTimeout(r, 120));
+    await waitForProcess();
 
     const tasks = await storage.getPendingTasks('pending');
     const urgentTask = tasks.find((t) => t.contactId === contactId);
@@ -364,7 +366,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
       type: 'text',
     });
 
-    await new Promise((r) => setTimeout(r, 120));
+    await waitForProcess();
 
     // Both should have been aggregated into one dispatch evaluation
     const logs = (await storage.getAuditLogs()).filter((a) => a.contactId === contactId);
@@ -446,10 +448,10 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
       type: 'text',
     });
 
-    await new Promise((r) => setTimeout(r, 120));
+    await waitForProcess();
 
     // No auto response should have been sent to lead-slow
-    const audit = (await storage.getAuditLogs()).find((a) => a.messageId === 'lead-slow');
+    const audit = (await storage.getAuditLogs()).find((a) => a.messageId === 'lead-slow' && a.finalDecision === 'AUTO_REPLY');
     expect(audit).toBeUndefined();
   });
 

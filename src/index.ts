@@ -42,10 +42,10 @@ async function main() {
   let adminRuntime = defaultAdmin ? await tenantManager.getOrCreateRuntime(defaultAdmin) : null;
   const gateway = adminRuntime ? adminRuntime.gateway : new WhatsAppGateway();
   const autonomyController = adminRuntime ? adminRuntime.autonomyController : new AutonomyController({ globalMode: 'AUTONOMOUS_CONTROLLED' });
-  const approvalManager = adminRuntime ? adminRuntime.approvalManager : new ApprovalManager(storage, new MessageDispatcher(storage), new PersonalityEngine());
-  const personalityEngine = adminRuntime ? adminRuntime.personalityEngine : new PersonalityEngine();
+  const personalityEngine = adminRuntime ? adminRuntime.personalityEngine : new PersonalityEngine('Ângelo Miguel');
+  const approvalManager = adminRuntime ? adminRuntime.approvalManager : new ApprovalManager(storage, new MessageDispatcher(storage), personalityEngine);
   const hybridInterpreter = adminRuntime ? adminRuntime.hybridInterpreter : new HybridHeuristicInterpreter(storage);
-  const styleRAG = adminRuntime ? adminRuntime.styleRAG : new OwnerStyleRAG(storage);
+  const styleRAG = adminRuntime ? adminRuntime.styleRAG : new OwnerStyleRAG(storage, defaultAdmin?.id);
 
   const port = Number(process.env.PORT) || 3000;
   const server = createServer({

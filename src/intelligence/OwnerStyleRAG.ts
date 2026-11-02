@@ -47,11 +47,14 @@ export class OwnerStyleRAG {
     'bora',
   ];
 
-  constructor(private storage: StorageAdapter) {}
+  constructor(
+    private storage: StorageAdapter,
+    private tenantId?: string
+  ) {}
 
   public async init(): Promise<void> {
-    // Carrega todo o histórico do armazenamento e constrói a base de conhecimento de pares (Mensagem do Contato -> Resposta Real do Dono)
-    const allMessages = await this.storage.getRecentMessages('', 1000);
+    // Carrega todo o histórico do armazenamento e constrói a base de conhecimento de pares para o tenant
+    const allMessages = await this.storage.getRecentMessages('', 1000, this.tenantId);
     this.rebuildIndex(allMessages);
   }
 

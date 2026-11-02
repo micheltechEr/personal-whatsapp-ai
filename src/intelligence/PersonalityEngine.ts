@@ -1,6 +1,7 @@
 import { ContactMemory, NormalizedMessage } from '../types/index.js';
 
 export interface OwnerVoiceProfile {
+  ownerName: string;
   defaultFormality: 'low' | 'medium' | 'high';
   averageLengthWords: number;
   useEmojis: boolean;
@@ -17,27 +18,41 @@ export interface OwnerVoiceProfile {
 }
 
 export class PersonalityEngine {
-  private profile: OwnerVoiceProfile = {
-    defaultFormality: 'low',
-    averageLengthWords: 12,
-    useEmojis: true,
-    typicalEmojis: ['👍', '🤝', '👊', 'valeu'],
-    preferredGreetings: {
-      informal: ['Opa, tudo bem?', 'Fala aí!', 'E aí, beleza?'],
-      formal: ['Olá, tudo bem?', 'Bom dia, como posso ajudar?'],
-    },
-    preferredClosings: {
-      informal: ['Valeu!', 'Abraço!', 'Qualquer coisa me chama.'],
-      formal: ['Atenciosamente, Ângelo.', 'Fico à disposição.'],
-    },
-    bannedPhrases: [
-      'Como um modelo de IA',
-      'Espero que esta mensagem o encontre bem',
-      'Prezado senhor',
-      'Certamente!',
-      'Com certeza meu caro',
-    ],
-  };
+  private profile: OwnerVoiceProfile;
+
+  constructor(ownerName: string = 'Proprietário') {
+    this.profile = {
+      ownerName,
+      defaultFormality: 'low',
+      averageLengthWords: 12,
+      useEmojis: true,
+      typicalEmojis: ['👍', '🤝', '👊', 'valeu'],
+      preferredGreetings: {
+        informal: ['Opa, tudo bem?', 'Fala aí!', 'E aí, beleza?'],
+        formal: ['Olá, tudo bem?', 'Bom dia, como posso ajudar?'],
+      },
+      preferredClosings: {
+        informal: ['Valeu!', 'Abraço!', 'Qualquer coisa me chama.'],
+        formal: [`Atenciosamente, ${ownerName}.`, 'Fico à disposição.'],
+      },
+      bannedPhrases: [
+        'Como um modelo de IA',
+        'Espero que esta mensagem o encontre bem',
+        'Prezado senhor',
+        'Certamente!',
+        'Com certeza meu caro',
+      ],
+    };
+  }
+
+  public getOwnerName(): string {
+    return this.profile.ownerName;
+  }
+
+  public setOwnerName(name: string): void {
+    this.profile.ownerName = name;
+    this.profile.preferredClosings.formal[0] = `Atenciosamente, ${name}.`;
+  }
 
   public getVoiceProfile(): OwnerVoiceProfile {
     return { ...this.profile };

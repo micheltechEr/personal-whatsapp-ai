@@ -31,23 +31,24 @@ export class ResponseGenerator {
     relationship: string,
     contactId?: string
   ): Promise<string | null> {
+    const ownerName = this.personalityEngine.getOwnerName();
     let ragFewShotSection = '';
-    let styleGuidance = '- Tom: direto, conciso, gírias normais de WhatsApp (ex: kkk, pow, mano, blz), sem formalismo.';
+    let styleGuidance = `- Tom: direto, conciso, gírias normais de WhatsApp (ex: kkk, pow, mano, blz), sem formalismo.`;
 
     if (this.styleRAG && contactId) {
       const ragContext = this.styleRAG.retrieveStyleContext(messageText, contactId, 4);
       if (ragContext.fewShotExamples.length > 0) {
         const examplesText = ragContext.fewShotExamples
-          .map((ex) => `Contato: "${ex.inboundText}" -> Ângelo respondeu: "${ex.ownerReplyText}"`)
+          .map((ex) => `Contato: "${ex.inboundText}" -> ${ownerName} respondeu: "${ex.ownerReplyText}"`)
           .join('\n');
 
-        ragFewShotSection = `\n\nEXEMPLOS REAIS DE COMO O ÂNGELO RESPONDE NO WHATSAPP (RAG):\n${examplesText}\nImite exatamente a cadência, tom informal, abreviações e concisão desses exemplos acima.`;
+        ragFewShotSection = `\n\nEXEMPLOS REAIS DE COMO ${ownerName.toUpperCase()} RESPONDE NO WHATSAPP (RAG):\n${examplesText}\nImite exatamente a cadência, tom informal, abreviações e concisão desses exemplos acima.`;
       }
 
       const { averageWordCount, frequentSlang, lowercaseRatio } = ragContext.metrics;
-      styleGuidance += `\n- Média de palavras do Ângelo: cerca de ${averageWordCount} palavras por resposta.`;
+      styleGuidance += `\n- Média de palavras de ${ownerName}: cerca de ${averageWordCount} palavras por resposta.`;
       if (frequentSlang.length > 0) {
-        styleGuidance += `\n- Gírias/abreviações típicas do Ângelo: ${frequentSlang.join(', ')}.`;
+        styleGuidance += `\n- Gírias/abreviações típicas de ${ownerName}: ${frequentSlang.join(', ')}.`;
       }
       if (lowercaseRatio > 0.5) {
         styleGuidance += `\n- Preferir respostas sem formalidade, com estilo casual de chat.`;
@@ -56,12 +57,12 @@ export class ResponseGenerator {
 
     let relationshipVocatives = '';
     if (relationship === 'romantic') {
-      relationshipVocatives = `\n- RELAÇÃO ROMÂNTICA / NAMORADA: É TOTALMENTE PROIBIDO usar "mano", "vei", "cara", "irmão", "brother", "parça". Responda com afeto de namorado (ex: "amor", "vida", "linda" ou tom carinhoso). Jamais use gírias masculinas de amigos.`;
+      relationshipVocatives = `\n- RELAÇÃO ROMÂNTICA / PARCEIRA: É TOTALMENTE PROIBIDO usar "mano", "vei", "cara", "irmão", "brother", "parça". Responda com afeto de namorado/parceiro (ex: "amor", "vida", "linda" ou tom carinhoso). Jamais use gírias masculinas de amigos.`;
     } else if (relationship === 'family') {
       relationshipVocatives = `\n- RELAÇÃO FAMILIAR: Proibido usar "mano", "vei" ou gírias de rua. Trate com respeito e carinho.`;
     }
 
-    const systemPrompt = `Você é o Ângelo conversando no seu WhatsApp pessoal.
+    const systemPrompt = `Você é ${ownerName} conversando no seu WhatsApp pessoal.
 Você NUNCA deve responder como robô assistente nem usar padrões engessados ou forçados.
 
 DIRETRIZES DE NATURALIDADE E PERSONALIDADE POR CONVERSA:
@@ -73,7 +74,7 @@ ${styleGuidance}${relationshipVocatives}
 - Relação com interlocutor: ${relationship}
 - Contexto recente da conversa: ${contextSummary || 'Início de conversa'}${ragFewShotSection}
 
-Gere APENAS a resposta final como o Ângelo enviaria no WhatsApp.`;
+Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
 
     return this.llmClient.complete([
       { role: 'system', content: systemPrompt },
