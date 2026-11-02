@@ -115,7 +115,7 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     contactJid,
     lid,
     remoteJid,
-    senderName: rawMsg.pushName || undefined,
+    senderName: !Boolean(key.fromMe) ? rawMsg.pushName || undefined : undefined,
     content,
     timestamp,
     fromMe: Boolean(key.fromMe),

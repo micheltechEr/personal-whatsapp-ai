@@ -90,16 +90,22 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       }
 
       // Mapeia nomes de contatos conhecidos para preencher logs antigos que estavam sem nome
+      // ATENÇÃO: Apenas mensagens vindas da outra pessoa (fromMe: false) devem definir o nome do contato!
+      // Mensagens enviadas pelo proprietário (fromMe: true) têm pushName = "Miguel" e NÃO devem sobrescrever o interlocutor.
       const nameMap = new Map<string, string>();
       for (const m of this.messages.values()) {
-        if (m.senderName && m.contactId) {
+        if (!m.fromMe && m.senderName && m.contactId) {
           nameMap.set(m.contactId, m.senderName);
           if (m.lid) nameMap.set(m.lid, m.senderName);
         }
       }
       for (const a of this.auditLogs) {
-        if (!a.contactName && nameMap.has(a.contactId)) {
+        // Se o log estava com "Miguel" ou sem nome, tenta pegar o nome real do interlocutor (fromMe: false)
+        if ((!a.contactName || a.contactName === 'Miguel') && nameMap.has(a.contactId)) {
           a.contactName = nameMap.get(a.contactId);
+        } else if (a.contactName === 'Miguel' && !nameMap.has(a.contactId)) {
+          // Se não há nome conhecido do interlocutor, remove o "Miguel" para não induzir a erro
+          a.contactName = undefined;
         }
       }
     } catch {
