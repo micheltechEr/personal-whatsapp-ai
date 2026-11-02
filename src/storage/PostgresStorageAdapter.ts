@@ -444,4 +444,14 @@ export class PostgresStorageAdapter implements StorageAdapter {
   }
 
   async setSetting(key: string, value: string, tenantId?: string): Promise<void> {}
+
+  async saveImportantConversation(summary: any, tenantId?: string): Promise<void> {}
+
+  async getImportantConversations(tenantId?: string): Promise<any[]> {
+    return [];
+  }
+
+  async deleteImportantConversation(id: string, tenantId?: string): Promise<boolean> {
+    return true;
+  }
 }

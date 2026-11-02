@@ -9,6 +9,7 @@ import {
   AuditLogEntry,
   HeuristicKeywordRule,
   TenantUser,
+  ImportantConversationSummary,
 } from '../types/index.js';
 
 export class MemoryFileStorageAdapter implements StorageAdapter {
@@ -22,6 +23,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   private keywordRules: Map<string, HeuristicKeywordRule> = new Map();
   private tenants: Map<string, TenantUser> = new Map();
   private settings: Map<string, string> = new Map();
+  private importantConversations: Map<string, ImportantConversationSummary> = new Map();
   private writeLock: Promise<void> = Promise.resolve();
   private initialized = false;
 
@@ -73,6 +75,11 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       if (parsed.settings) {
         for (const [k, v] of Object.entries(parsed.settings)) {
           this.settings.set(k, String(v));
+        }
+      }
+      if (parsed.importantConversations) {
+        for (const imp of parsed.importantConversations) {
+          this.importantConversations.set(imp.id, imp);
         }
       }
 
@@ -142,6 +149,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       keywordRules: Array.from(this.keywordRules.values()),
       tenants: Array.from(this.tenants.values()),
       settings: Object.fromEntries(this.settings.entries()),
+      importantConversations: Array.from(this.importantConversations.values()),
     };
 
     try {
@@ -369,5 +377,35 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       this.settings.set(key, value);
     }
     await this.persistAll();
+  }
+
+  async saveImportantConversation(summary: ImportantConversationSummary, tenantId?: string): Promise<void> {
+    const tid = tenantId || summary.tenantId;
+    this.importantConversations.set(summary.id, { ...summary, tenantId: tid });
+    await this.persistAll();
+  }
+
+  async getImportantConversations(tenantId?: string): Promise<ImportantConversationSummary[]> {
+    const primaryIds = Array.from(this.tenants.values())
+      .filter((t) => t.username === 'admin' || t.username === 'omigueldev')
+      .map((t) => t.id);
+    const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
+
+    const all = Array.from(this.importantConversations.values()).filter((c) => {
+      if (isPrimaryQuery) {
+        return !c.tenantId || primaryIds.includes(c.tenantId) || c.tenantId === tenantId;
+      }
+      return c.tenantId === tenantId;
+    });
+
+    return all.sort((a, b) => b.lastActivityTimestamp - a.lastActivityTimestamp);
+  }
+
+  async deleteImportantConversation(id: string, tenantId?: string): Promise<boolean> {
+    const deleted = this.importantConversations.delete(id);
+    if (deleted) {
+      await this.persistAll();
+    }
+    return deleted;
   }
 }

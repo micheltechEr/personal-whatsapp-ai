@@ -9,6 +9,7 @@ import { ResponseGenerator } from '../intelligence/ResponseGenerator.js';
 import { AutonomyController } from '../autonomy/AutonomyController.js';
 import { MessageDispatcher } from '../autonomy/MessageDispatcher.js';
 import { ApprovalManager } from '../autonomy/ApprovalManager.js';
+import { ImportantSubjectClassifier } from '../intelligence/ImportantSubjectClassifier.js';
 import {
   NormalizedMessage,
   AuditLogEntry,
@@ -22,6 +23,7 @@ export interface ProcessorConfig {
 export class MessageProcessor extends EventEmitter {
   private config: ProcessorConfig;
   private messageBuffer: Map<string, { timer: NodeJS.Timeout; messages: NormalizedMessage[] }> = new Map();
+  private importantClassifier: ImportantSubjectClassifier;
 
   constructor(
     private storage: StorageAdapter,
@@ -33,13 +35,15 @@ export class MessageProcessor extends EventEmitter {
     private autonomyController: AutonomyController,
     private dispatcher: MessageDispatcher,
     private approvalManager: ApprovalManager,
-    customConfig?: Partial<ProcessorConfig>
+    customConfig?: Partial<ProcessorConfig>,
+    importantClassifier?: ImportantSubjectClassifier
   ) {
     super();
     this.config = {
       bufferWindowMs: 400, // Janela rápida de 400ms para mensagens consecutivas
       ...customConfig,
     };
+    this.importantClassifier = importantClassifier || new ImportantSubjectClassifier(storage);
   }
 
   public async onIncomingMessage(message: NormalizedMessage): Promise<void> {
@@ -205,6 +209,13 @@ export class MessageProcessor extends EventEmitter {
     };
 
     await this.storage.saveAuditLog(auditEntry);
+
+    // Se o assunto for relevante / importante (propostas, reuniões, orçamentos, contratos, prazos),
+    // classifica e atualiza o resumo executivo, decisão tomada e pendências
+    this.importantClassifier.analyzeAndSave(message, context, sentResponse, message.tenantId).catch((err) => {
+      console.warn('[MessageProcessor] Erro ao classificar assunto importante:', err);
+    });
+
     this.emit('processed', { message, proposal, evaluation, auditEntry });
   }
 }

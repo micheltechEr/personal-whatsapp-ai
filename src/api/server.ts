@@ -200,6 +200,21 @@ export function createServer(dependencies: {
     return dependencies.approvalManager ? dependencies.approvalManager.getPending() : [];
   });
 
+  // 4.1 Important Conversations Highlights
+  app.get('/api/conversations/important', async (request) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    return dependencies.storage.getImportantConversations(tenantId);
+  });
+
+  app.delete('/api/conversations/important/:id', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    const { id } = request.params as { id: string };
+    const success = await dependencies.storage.deleteImportantConversation(id, tenantId);
+    return { success };
+  });
+
   app.post('/api/approvals/:id/approve', async (request, reply) => {
     const container = await getTenantContainer(request);
     const mgr = container ? container.approvalManager : dependencies.approvalManager;
@@ -483,6 +498,37 @@ export function createServer(dependencies: {
     </div>
   </div>
 
+  <!-- Conversas Importantes / Destaques Executivos -->
+  <div style="background: var(--card); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 8px; padding: 20px; margin-bottom: 24px; box-shadow: 0 4px 20px rgba(234, 179, 8, 0.05);">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div>
+        <h3 style="font-size: 15px; font-weight: 600; color: #EAB308; display: flex; align-items: center; gap: 8px;">
+          <span>⭐</span> Conversas Importantes (Resumo, Decisão Tomada & O que Aguarda)
+        </h3>
+        <p style="color: var(--muted); font-size: 12px; margin-top: 4px;">Assuntos estratégicos identificados automaticamente (orçamentos, propostas, contratos, prazos e compromissos).</p>
+      </div>
+      <button style="font-size: 11px; padding: 6px 10px;" onclick="loadData()">Atualizar</button>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Contato</th>
+            <th>Assunto / Tópico</th>
+            <th>Resumo do Contexto</th>
+            <th>Decisão Tomada</th>
+            <th>O que Aguarda</th>
+            <th>Status</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="important-body">
+          <tr><td colspan="7" class="empty">Nenhuma conversa prioritária ativa no momento.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="section-title">Auditoria em Tempo Real (Decisões Determinísticas)</div>
   <div class="table-container">
     <table id="audit-table">
@@ -714,6 +760,36 @@ export function createServer(dependencies: {
           }).join('');
         }
 
+        // Load Important Conversations (Executive Highlights)
+        const impRes = await fetch('/api/conversations/important', { headers: getAuthHeaders() });
+        const importList = await impRes.json();
+        const impBody = document.getElementById('important-body');
+        if (importList.length === 0) {
+          impBody.innerHTML = '<tr><td colspan="7" class="empty">Nenhuma conversa prioritária ativa no momento.</td></tr>';
+        } else {
+          impBody.innerHTML = importList.map(item => {
+            const statusBadge = item.status === 'pending_action'
+              ? '<span style="color:#EF4444; font-weight:bold;">● Ação Necessária</span>'
+              : item.status === 'waiting_interlocutor'
+              ? '<span style="color:#EAB308; font-weight:bold;">⏳ Aguardando Contato</span>'
+              : '<span style="color:#22C55E; font-weight:bold;">✓ Resolvido</span>';
+
+            return \`
+              <tr>
+                <td>\${formatContactDisplay(item.contactId, item.contactName)}</td>
+                <td><strong style="color: #EAB308;">\${item.topic}</strong></td>
+                <td style="max-width: 260px; font-size: 12px;">\${item.summary}</td>
+                <td style="font-size: 12px; color: var(--text);">\${item.lastDecisionTaken}</td>
+                <td style="font-size: 12px; color: #38BDF8; font-weight: 500;">\${item.waitingFor}</td>
+                <td>\${statusBadge}</td>
+                <td>
+                  <button class="btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="dismissImportant('\${item.id}')">Concluir</button>
+                </td>
+              </tr>
+            \`;
+          }).join('');
+        }
+
         // Load Audit Logs
         const auditRes = await fetch('/api/audit', { headers: getAuthHeaders() });
         const logs = await auditRes.json();
@@ -778,6 +854,11 @@ export function createServer(dependencies: {
 
     async function deleteKeyword(id) {
       await fetch(\`/api/heuristics/keywords/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
+      loadData();
+    }
+
+    async function dismissImportant(id) {
+      await fetch(\`/api/conversations/important/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
       loadData();
     }
 

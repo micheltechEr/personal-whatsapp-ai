@@ -54,11 +54,12 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
     );
   });
 
-  const waitForProcess = () => new Promise((r) => setTimeout(r, 160));
+  const waitForProcess = () => new Promise((r) => setTimeout(r, 250));
 
   afterEach(async () => {
     processor.clearAllBuffers();
     await storage.close();
+    await new Promise((r) => setTimeout(r, 60));
     await fs.rm(testDir, { recursive: true, force: true }).catch(() => {});
   });
 

@@ -6,6 +6,7 @@ import {
   AuditLogEntry,
   HeuristicKeywordRule,
   TenantUser,
+  ImportantConversationSummary,
 } from '../types/index.js';
 
 export interface StorageAdapter {
@@ -50,6 +51,11 @@ export interface StorageAdapter {
   getKeywordRules(tenantId?: string): Promise<HeuristicKeywordRule[]>;
   saveKeywordRule(rule: HeuristicKeywordRule, tenantId?: string): Promise<void>;
   deleteKeywordRule(id: string, tenantId?: string): Promise<boolean>;
+
+  // Important Conversations (Highlights / Priority Threads)
+  saveImportantConversation(summary: ImportantConversationSummary, tenantId?: string): Promise<void>;
+  getImportantConversations(tenantId?: string): Promise<ImportantConversationSummary[]>;
+  deleteImportantConversation(id: string, tenantId?: string): Promise<boolean>;
 
   // Settings & Limits
   getSetting(key: string, tenantId?: string): Promise<string | null>;

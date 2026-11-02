@@ -149,6 +149,22 @@ export interface AuditLogEntry {
   requiresHuman: boolean;
 }
 
+export interface ImportantConversationSummary {
+  id: string; // usually contactId or threadId
+  tenantId?: string;
+  contactId: string;
+  contactName?: string;
+  contactJid?: string;
+  topic: string;
+  importanceLevel: 'high' | 'critical';
+  summary: string;
+  lastDecisionTaken: string;
+  waitingFor: string; // O que está aguardando (ex: 'Aguardando envio do comprovante', 'Aguardando decisão de data', 'Respondido automaticamente')
+  status: 'pending_action' | 'waiting_interlocutor' | 'resolved';
+  lastActivityTimestamp: number;
+  sourceMessageId?: string;
+}
+
 export interface TenantUser {
   id: string; // tenant id
   username: string;
