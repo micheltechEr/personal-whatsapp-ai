@@ -66,14 +66,30 @@ export class OwnerStyleRAG {
       byContact.set(m.contactId, list);
     }
 
+    // Filtrar mensagens geradas automaticamente ou sintéticas para não poluir o aprendizado
+    const isSyntheticOrBot = (text: string) => {
+      const lower = text.toLowerCase().trim();
+      return (
+        lower === 'kkk de boa, e aí?' ||
+        lower.startsWith('opa, tudo bem? tudo certo por aqui') ||
+        lower.startsWith('oi! recebi aqui. vou verificar') ||
+        lower === '[mensagem do sistema]'
+      );
+    };
+
     for (const [contactId, list] of byContact.entries()) {
       list.sort((a, b) => a.timestamp - b.timestamp);
       for (let i = 1; i < list.length; i++) {
-        const current = list[i];
         const previous = list[i - 1];
+        const current = list[i];
 
-        // Se a mensagem anterior foi do contato e a atual foi do proprietário
-        if (current.fromMe && !previous.fromMe && current.content && previous.content) {
+        if (
+          current.fromMe &&
+          !previous.fromMe &&
+          current.content &&
+          previous.content &&
+          !isSyntheticOrBot(current.content)
+        ) {
           this.dialoguePairs.push({
             id: `pair-${current.id}`,
             contactId,
@@ -88,6 +104,16 @@ export class OwnerStyleRAG {
 
   public indexOwnerMessage(ownerMsg: NormalizedMessage, previousContactMsg?: NormalizedMessage): void {
     if (!ownerMsg.fromMe || !ownerMsg.content) return;
+
+    const lower = ownerMsg.content.toLowerCase().trim();
+    if (
+      lower === 'kkk de boa, e aí?' ||
+      lower.startsWith('opa, tudo bem? tudo certo por aqui') ||
+      lower.startsWith('oi! recebi aqui. vou verificar') ||
+      lower === '[mensagem do sistema]'
+    ) {
+      return;
+    }
 
     if (previousContactMsg && !previousContactMsg.fromMe && previousContactMsg.content) {
       this.dialoguePairs.push({
@@ -167,7 +193,17 @@ export class OwnerStyleRAG {
    * Analisa as mensagens do proprietário e extrai métricas linguísticas do seu estilo real.
    */
   public extractMetrics(ownerTexts: string[]): ExtractedStyleMetrics {
-    if (ownerTexts.length === 0) {
+    // Exclui mensagens automáticas para cálculo limpo das métricas
+    const cleanTexts = ownerTexts.filter((t) => {
+      const lower = t.toLowerCase().trim();
+      return (
+        lower !== 'kkk de boa, e aí?' &&
+        !lower.startsWith('opa, tudo bem? tudo certo por aqui') &&
+        lower !== '[mensagem do sistema]'
+      );
+    });
+
+    if (cleanTexts.length === 0) {
       return {
         totalAnalyzedMessages: 0,
         averageWordCount: 8,
@@ -185,7 +221,7 @@ export class OwnerStyleRAG {
     const emojiRegex = /[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu;
     const emojiCounts = new Map<string, number>();
 
-    for (const text of ownerTexts) {
+    for (const text of cleanTexts) {
       const words = text.trim().split(/\s+/);
       totalWords += words.length;
 
