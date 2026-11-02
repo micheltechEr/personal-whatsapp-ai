@@ -141,6 +141,8 @@ export class MessageProcessor extends EventEmitter {
       await this.approvalManager.addToQueue({
         messageId: message.id,
         contactId: message.contactId,
+        contactName: message.senderName,
+        contactJid: message.contactJid || message.remoteJid,
         originalMessage: message.content,
         contextSummary: context.recentSummary,
         suggestedResponse: proposal.suggested_response,
@@ -155,6 +157,8 @@ export class MessageProcessor extends EventEmitter {
       const task: PendingTask = {
         id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         contactId: message.contactId,
+        contactName: message.senderName,
+        contactJid: message.contactJid || message.remoteJid,
         description: `Ação necessária: ${proposal.operational_action} referente a "${message.content.slice(0, 50)}"`,
         createdAt: Date.now(),
         priority: intent.isUrgent ? 'urgent' : proposal.risk_level >= 2 ? 'high' : 'normal',
@@ -170,6 +174,8 @@ export class MessageProcessor extends EventEmitter {
       id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       timestamp: Date.now(),
       contactId: message.contactId,
+      contactName: message.senderName,
+      contactJid: message.contactJid || message.remoteJid,
       messageId: message.id,
       rawInput: message.content,
       intent: proposal.intent,

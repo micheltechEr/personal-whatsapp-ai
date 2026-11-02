@@ -55,6 +55,8 @@ export interface NormalizedMessage {
   id: string;
   tenantId?: string;
   contactId: string;
+  contactJid?: string;
+  lid?: string;
   remoteJid?: string;
   senderName?: string;
   content: string;
@@ -83,6 +85,8 @@ export interface PendingTask {
   id: string;
   tenantId?: string;
   contactId: string;
+  contactName?: string;
+  contactJid?: string;
   description: string;
   createdAt: number;
   priority: 'low' | 'normal' | 'high' | 'urgent';
@@ -97,6 +101,8 @@ export interface ApprovalQueueItem {
   tenantId?: string;
   messageId: string;
   contactId: string;
+  contactName?: string;
+  contactJid?: string;
   originalMessage: string;
   contextSummary: string;
   suggestedResponse: string;
@@ -114,6 +120,8 @@ export interface AuditLogEntry {
   tenantId?: string;
   timestamp: number;
   contactId: string;
+  contactName?: string;
+  contactJid?: string;
   messageId: string;
   rawInput: string;
   intent: string;

@@ -606,6 +606,13 @@ export function createServer(dependencies: {
       location.reload();
     }
 
+    function formatContactDisplay(contactId, contactName) {
+      if (contactName && contactName.trim()) {
+        return '<strong>' + contactName + '</strong><br><span style=\"color:var(--muted); font-size:11px;\">' + contactId + '</span>';
+      }
+      return '<span>' + contactId + '</span>';
+    }
+
     async function loadData() {
       if (!localStorage.getItem('tenant_token') && !sessionStorage.getItem('tenant_token')) {
         document.getElementById('auth-overlay').style.display = 'flex';
@@ -667,7 +674,7 @@ export function createServer(dependencies: {
         } else {
           appBody.innerHTML = approvals.map(a => \`
             <tr>
-              <td>\${a.contactId}</td>
+              <td>\${formatContactDisplay(a.contactId, a.contactName)}</td>
               <td>\${a.originalMessage}</td>
               <td><strong>\${a.suggestedResponse}</strong></td>
               <td>\${a.reason}</td>
@@ -712,7 +719,7 @@ export function createServer(dependencies: {
           auditBody.innerHTML = logs.slice(0, 10).map(l => \`
             <tr>
               <td>\${new Date(l.timestamp).toLocaleTimeString()}</td>
-              <td>\${l.contactId}</td>
+              <td>\${formatContactDisplay(l.contactId, l.contactName)}</td>
               <td>\${l.rawInput}</td>
               <td>Nível \${l.riskLevel}</td>
               <td><span style="color: \${l.finalDecision === 'AUTO_REPLY' ? 'var(--accent)' : 'var(--warn)'}">\${l.finalDecision}</span></td>

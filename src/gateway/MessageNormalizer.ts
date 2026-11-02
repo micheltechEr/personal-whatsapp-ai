@@ -85,7 +85,25 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
   }
 
   const { content, type } = extractMessageContent(rawMsg.message);
-  const contactId = cleanContactJid(remoteJid);
+  
+  // Prioriza o número de telefone (JID) real ao invés do LID numérico
+  let contactJid = remoteJid;
+  let lid: string | undefined = undefined;
+  const remoteJidAlt = (key as any)?.remoteJidAlt as string | undefined;
+
+  if (remoteJid.includes('@lid')) {
+    lid = cleanContactJid(remoteJid);
+    if (remoteJidAlt && remoteJidAlt.includes('@s.whatsapp.net')) {
+      contactJid = remoteJidAlt;
+    }
+  } else if (remoteJid.includes('@s.whatsapp.net')) {
+    contactJid = remoteJid;
+    if (remoteJidAlt && remoteJidAlt.includes('@lid')) {
+      lid = cleanContactJid(remoteJidAlt);
+    }
+  }
+
+  const contactId = cleanContactJid(contactJid);
   const id = key.id || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const timestamp = typeof rawMsg.messageTimestamp === 'number'
     ? rawMsg.messageTimestamp * 1000
@@ -94,6 +112,8 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
   return {
     id,
     contactId,
+    contactJid,
+    lid,
     remoteJid,
     senderName: rawMsg.pushName || undefined,
     content,

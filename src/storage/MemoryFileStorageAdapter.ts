@@ -88,6 +88,20 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
           if (!ap.tenantId) ap.tenantId = primaryTenant.id;
         }
       }
+
+      // Mapeia nomes de contatos conhecidos para preencher logs antigos que estavam sem nome
+      const nameMap = new Map<string, string>();
+      for (const m of this.messages.values()) {
+        if (m.senderName && m.contactId) {
+          nameMap.set(m.contactId, m.senderName);
+          if (m.lid) nameMap.set(m.lid, m.senderName);
+        }
+      }
+      for (const a of this.auditLogs) {
+        if (!a.contactName && nameMap.has(a.contactId)) {
+          a.contactName = nameMap.get(a.contactId);
+        }
+      }
     } catch {
       // file might not exist initially, safe to start empty
     }
