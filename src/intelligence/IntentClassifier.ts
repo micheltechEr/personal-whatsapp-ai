@@ -31,8 +31,26 @@ export class IntentClassifier {
     /\b(preciso\s+que|favor\s+enviar|manda\s+o|faz\s+isso|atualiza|corrige|arruma|ajuda\s+com)\b/i,
   ];
 
-  public classify(content: string, type: string = 'text', recentConversationContext: string = ''): IntentAnalysis {
+  public classify(
+    content: string,
+    type: string = 'text',
+    recentConversationContext: string = '',
+    hasQuotedReference: boolean = false
+  ): IntentAnalysis {
     const text = content.trim();
+
+    // Se o contato usou "." ou qualquer marcador pontual citando uma conversa antiga,
+    // NÃO trata como texto vazio ou silêncio: promove para referência contextual explícita!
+    if (hasQuotedReference && (text === '.' || text === '..' || text === '...' || text.length <= 4)) {
+      return {
+        intent: 'EXPLICIT_CONTEXT_REFERENCE',
+        isQuestion: true, // Trata como solicitação/retomada de assunto que requer atenção
+        isUrgent: false,
+        requiresResponse: true,
+        operationalAction: 'RESPONDER',
+        confidence: 96,
+      };
+    }
 
     // H03: Intelligent silence detection
     // If just media without caption or meaningless reaction/empty (incluindo figurinhas)
@@ -156,9 +174,10 @@ export class IntentClassifier {
     content: string,
     type: string = 'text',
     recentConversationContext: string = '',
-    jev?: JevEvaluationResult | null
+    jev?: JevEvaluationResult | null,
+    hasQuotedReference: boolean = false
   ): IntentAnalysis {
-    const base = this.classify(content, type, recentConversationContext);
+    const base = this.classify(content, type, recentConversationContext, hasQuotedReference);
     if (!jev) return base;
 
     if (jev.intent === 'system_probing' || jev.isAttackOrProbing) {

@@ -36,7 +36,8 @@ export class ResponseGenerator {
     relationship: string,
     contactId?: string,
     contactName?: string,
-    gender?: string
+    gender?: string,
+    explicitReferencedMessage?: ConversationContext['explicitReferencedMessage']
   ): Promise<string | null> {
     const ownerName = this.personalityEngine.getOwnerName();
     let ragFewShotSection = '';
@@ -76,6 +77,12 @@ export class ResponseGenerator {
       }
     }
 
+    // Se houver referência explícita de mensagem citada (contextInfo.stanzaId), enriquece o prompt do LLM
+    let explicitReferencePrompt = '';
+    if (explicitReferencedMessage) {
+      explicitReferencePrompt = `\n- REFERÊNCIA EXPLÍCITA DE CONVERSA CITADA (contextInfo): O contato marcou/citou uma mensagem anterior específica no WhatsApp:\n  Mensagem citada: "${explicitReferencedMessage.original.content}"\n  Vizinhança da conversa na época: ${explicitReferencedMessage.surroundingContext}\n  O contato enviou agora: "${messageText}".\n  Avalie se o contato está cobrando uma resposta, retomando um assunto pendente ou confirmando algo daquela época, e responda com total precisão contextual.`;
+    }
+
     const systemPrompt = `Você é ${ownerName} conversando no seu WhatsApp pessoal.
 Você NUNCA deve responder como robô assistente nem usar padrões engessados ou forçados.
 
@@ -83,7 +90,7 @@ DIRETRIZES DE NATURALIDADE E PERSONALIDADE POR CONVERSA:
 - ADAPTAÇÃO AO INTERLOCUTOR: Interlocutor: ${contactName || 'Contato'} (Gênero: ${gender || 'neutro'}, Relação: ${relationship}).
 - VOCATIVOS CONTROLADOS:${vocativeGuidance}
 - PROIBIÇÃO DE RISADA FORÇADA: NUNCA coloque "kkk", "kkkk", "llkkk" ou risadas automáticas no fim de mensagens afirmativas (como "Beleza", "Show", "Valeu", "Tranquilo"). SÓ use risada se o interlocutor tiver feito uma piada genuína, enviado meme ou rido antes. Não force simpatia artificial.
-- COERÊNCIA CONTEXTUAL: Preste muita atenção em quem está falando e ao sujeito da ação. Se a pessoa diz "Demora pra achar figurinha", ela está justificando a si mesma, não você. Não peça desculpas nem assuma ações alheias.
+- COERÊNCIA CONTEXTUAL: Preste muita atenção em quem está falando e ao sujeito da ação. Se a pessoa diz "Demora pra achar figurinha", ela está justificando a si mesma, não você. Não peça desculpas nem assuma ações alheias.${explicitReferencePrompt}
 - CONCISÃO NATURAL: Responda exatamente como uma pessoa real responde no WhatsApp: 1 frase curta, objetiva, sem enrolação.
 ${styleGuidance}
 - Contexto recente da conversa: ${contextSummary || 'Início de conversa'}${ragFewShotSection}
@@ -270,7 +277,8 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
           context.contactMemory.relationship,
           message.contactId,
           context.contactName || context.contactMemory.name,
-          context.contactMemory.gender
+          context.contactMemory.gender,
+          context.explicitReferencedMessage
         );
         if (!generated || generated.trim().length === 0) {
           decision = 'REVIEW_REQUIRED';
@@ -347,7 +355,8 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         context.contactMemory.relationship,
         message.contactId,
         context.contactName || context.contactMemory.name,
-        context.contactMemory.gender
+        context.contactMemory.gender,
+        context.explicitReferencedMessage
       );
 
       // Fallback para conversas ultra curtas caso o LLM demore ou não retorne

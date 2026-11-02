@@ -116,13 +116,15 @@ export class MessageProcessor extends EventEmitter {
   }
 
   public async processSingleOrAggregated(message: NormalizedMessage): Promise<void> {
-    const context = await this.contextEngine.getContext(message.contactId);
+    const context = await this.contextEngine.getContext(message.contactId, message);
     const risk = await this.riskEngine.analyzeAsync(message.content, context.recentSummary);
+    const hasQuoted = Boolean(message.quoted?.stanzaId);
     const intent = this.intentClassifier.classifyWithJev(
       message.content,
       message.type,
       context.recentSummary,
-      risk.jevEvaluation
+      risk.jevEvaluation,
+      hasQuoted
     );
 
     // Generate Proposal

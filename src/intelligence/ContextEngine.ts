@@ -13,12 +13,16 @@ export interface ConversationContext {
   isOwnerLastSender: boolean;
   ownerSentManualReplyRecently: boolean;
   contextConfidence: number;
+  explicitReferencedMessage?: {
+    original: NormalizedMessage;
+    surroundingContext: string;
+  };
 }
 
 export class ContextEngine {
   constructor(private storage: StorageAdapter) {}
 
-  public async getContext(contactId: string): Promise<ConversationContext> {
+  public async getContext(contactId: string, currentMessage?: NormalizedMessage): Promise<ConversationContext> {
     let mem = await this.storage.getContactMemory(contactId);
     if (!mem) {
       mem = {
@@ -107,8 +111,51 @@ export class ContextEngine {
     else if (recent.length >= 1) contextConfidence = 88;
     else contextConfidence = 70; // Unknown contact or cold start
 
+    // Recupera referência explícita (contextInfo.stanzaId) se a mensagem cita/marca uma conversa antiga
+    let explicitReferencedMessage: ConversationContext['explicitReferencedMessage'] = undefined;
+    if (currentMessage?.quoted?.stanzaId) {
+      const original = await this.storage.getMessage(currentMessage.quoted.stanzaId);
+      if (original) {
+        // Busca vizinhança temporal (mensagens anteriores e posteriores ao ponto citado)
+        const allContactMsgs = await this.storage.getRecentMessages(contactId, 60);
+        const originalIndex = allContactMsgs.findIndex((m) => m.id === original.id);
+        let surrounding: NormalizedMessage[] = [];
+        if (originalIndex !== -1) {
+          const start = Math.max(0, originalIndex - 2);
+          const end = Math.min(allContactMsgs.length, originalIndex + 3);
+          surrounding = allContactMsgs.slice(start, end);
+        } else {
+          surrounding = [original];
+        }
+
+        const surroundingContext = surrounding
+          .map((m) => `${m.fromMe ? 'Proprietário' : 'Contato'}: "${m.content}"`)
+          .join(' -> ');
+
+        explicitReferencedMessage = {
+          original,
+          surroundingContext,
+        };
+      } else if (currentMessage.quoted.quotedMessage) {
+        // Fallback: se a mensagem original não estava no banco mas o WhatsApp enviou o preview do texto citado
+        explicitReferencedMessage = {
+          original: {
+            id: currentMessage.quoted.stanzaId,
+            contactId,
+            content: currentMessage.quoted.quotedMessage,
+            timestamp: Date.now() - 3600000,
+            fromMe: false,
+            isGroup: false,
+            type: (currentMessage.quoted.quotedType as any) || 'text',
+          },
+          surroundingContext: `Mensagem citada no WhatsApp: "${currentMessage.quoted.quotedMessage}"`,
+        };
+      }
+    }
+
     return {
       contactId,
+      contactName,
       contactMemory: mem,
       recentMessages: recent,
       pendingTasks: contactPending,
@@ -116,6 +163,7 @@ export class ContextEngine {
       isOwnerLastSender,
       ownerSentManualReplyRecently,
       contextConfidence,
+      explicitReferencedMessage,
     };
   }
 

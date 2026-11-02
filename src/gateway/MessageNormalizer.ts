@@ -125,6 +125,26 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     rawMsg.message?.videoMessage?.mimetype ||
     undefined;
 
+  // Extrai referência contextual explícita (contextInfo / stanzaId / quotedMessage)
+  let quoted: NormalizedMessage['quoted'] = undefined;
+  const rawContextInfo =
+    rawMsg.message?.extendedTextMessage?.contextInfo ||
+    rawMsg.message?.imageMessage?.contextInfo ||
+    rawMsg.message?.videoMessage?.contextInfo ||
+    rawMsg.message?.audioMessage?.contextInfo ||
+    rawMsg.message?.stickerMessage?.contextInfo ||
+    rawMsg.message?.documentMessage?.contextInfo;
+
+  if (rawContextInfo && rawContextInfo.stanzaId) {
+    const quotedContent = extractMessageContent(rawContextInfo.quotedMessage);
+    quoted = {
+      stanzaId: rawContextInfo.stanzaId,
+      participant: rawContextInfo.participant || undefined,
+      quotedMessage: quotedContent.content || undefined,
+      quotedType: quotedContent.type,
+    };
+  }
+
   return {
     id,
     contactId,
@@ -138,6 +158,7 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     isGroup: false,
     type,
     mimetype,
+    quoted,
     raw: rawMsg,
   };
 }

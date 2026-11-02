@@ -51,6 +51,13 @@ export const DecisionContractSchema = z.object({
 });
 export type DecisionContract = z.infer<typeof DecisionContractSchema>;
 
+export interface QuotedContextInfo {
+  stanzaId: string;
+  participant?: string;
+  quotedMessage?: string;
+  quotedType?: string;
+}
+
 export interface NormalizedMessage {
   id: string;
   tenantId?: string;
@@ -67,6 +74,7 @@ export interface NormalizedMessage {
   raw?: unknown;
   mediaBase64?: string; // Imagem/Figurinha em base64 para o Vision Model
   mimetype?: string;    // ex: image/webp
+  quoted?: QuotedContextInfo; // Referência contextual explícita (contextInfo.stanzaId)
 }
 
 export type GenderIdentity = 'masculine' | 'feminine' | 'neutral';
