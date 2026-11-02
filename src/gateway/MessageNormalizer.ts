@@ -48,10 +48,14 @@ export function extractMessageContent(message: proto.IMessage | null | undefined
     return { content: '[Áudio]', type: 'audio' };
   }
 
-  // Video
+  // Video or GIF
   if (message.videoMessage) {
+    const isGif = Boolean(message.videoMessage.gifPlayback);
     const caption = message.videoMessage.caption ? message.videoMessage.caption.trim() : '';
-    return { content: caption || '[Vídeo]', type: 'video' };
+    return {
+      content: caption || (isGif ? '[GIF]' : '[Vídeo]'),
+      type: isGif ? 'sticker' : 'video',
+    };
   }
 
   // Document
@@ -109,10 +113,16 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     ? rawMsg.messageTimestamp * 1000
     : Date.now();
 
+  const isStickerOrGif =
+    Boolean(rawMsg.message?.stickerMessage) ||
+    Boolean(rawMsg.message?.videoMessage?.gifPlayback);
+
   const mimetype =
     rawMsg.message?.stickerMessage?.mimetype ||
+    (rawMsg.message?.videoMessage?.gifPlayback ? 'image/gif' : undefined) ||
     rawMsg.message?.imageMessage?.mimetype ||
     rawMsg.message?.audioMessage?.mimetype ||
+    rawMsg.message?.videoMessage?.mimetype ||
     undefined;
 
   return {

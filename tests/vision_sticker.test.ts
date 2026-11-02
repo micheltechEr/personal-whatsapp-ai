@@ -17,6 +17,15 @@ describe('Vision Sticker Interpreter & Response Integration', () => {
     expect(result?.intent).toBe('STICKER_HUMOR');
   });
 
+  it('interprets GIF animations (image/gif) with vision mode', async () => {
+    const mockGifBase64 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const result = await vision.interpretSticker(mockGifBase64, 'image/gif');
+
+    expect(result).toBeDefined();
+    expect(result?.description).toBeDefined();
+    expect(result?.emotion).toBeDefined();
+  });
+
   it('generates contextual response when an expressive sticker is received', async () => {
     const personality = new PersonalityEngine('Ângelo');
     const generator = new ResponseGenerator(personality, undefined, undefined, undefined, vision);

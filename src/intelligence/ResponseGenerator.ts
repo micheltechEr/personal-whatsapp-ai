@@ -298,8 +298,8 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
             risk_level: 0,
             decision: 'IGNORE',
             confidence: { intent: 98, context: 95, factual: 99, response: 95 },
-            context_summary: `Figurinha recebida: ${stickerInfo.description}`,
-            reason: 'H03/H16: Figurinha de reação sem necessidade de resposta.',
+            context_summary: `Figurinha/GIF recebido: ${stickerInfo.description}`,
+            reason: `Figurinha/GIF de reação visual rápida (${stickerInfo.description}) sem necessidade de réplica.`,
             suggested_response: '',
             safety_flags: [],
             requires_human: false,
@@ -309,7 +309,7 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         }
 
         // Gera uma resposta natural baseada no que está desenhado/escrito na figurinha
-        const promptSticker = `O contato enviou esta figurinha no chat: "${stickerInfo.description}" (emoção/tom: ${stickerInfo.emotion}).`;
+        const promptSticker = `O contato enviou esta figurinha ou GIF no chat: "${stickerInfo.description}" (emoção/tom: ${stickerInfo.emotion}).`;
         const generated = await this.generateWithLLM(
           promptSticker,
           context.recentSummary,
@@ -329,7 +329,7 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
           decision: 'IGNORE',
           confidence: { intent: 95, context: 90, factual: 90, response: 90 },
           context_summary: context.recentSummary,
-          reason: 'H03: Figurinha recebida sem texto associado.',
+          reason: 'H03: Figurinha ou GIF recebido sem texto associado.',
           suggested_response: '',
           safety_flags: [],
           requires_human: false,

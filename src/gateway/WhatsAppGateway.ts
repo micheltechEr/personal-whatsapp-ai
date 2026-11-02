@@ -161,10 +161,14 @@ export class WhatsAppGateway extends EventEmitter {
             }
             this.lidMapping.set(jid, jid);
 
-            // Download da mídia da figurinha (Sticker WebP) para interpretação com Vision Mode
-            if (normalized.type === 'sticker' && rawMsg.message?.stickerMessage) {
+            // Download da mídia da figurinha (Sticker WebP ou GIF) para interpretação com Vision Mode
+            const isStickerOrGifMessage =
+              (normalized.type === 'sticker' && rawMsg.message?.stickerMessage) ||
+              (rawMsg.message?.videoMessage?.gifPlayback);
+
+            if (isStickerOrGifMessage) {
               try {
-                console.log(`[WhatsAppGateway] Figurinha (sticker) recebida de ${normalized.contactId}. Baixando mídia para Vision Mode...`);
+                console.log(`[WhatsAppGateway] Figurinha ou GIF recebido de ${normalized.contactId}. Baixando mídia para Vision Mode...`);
                 const buffer = await downloadMediaMessage(
                   rawMsg,
                   'buffer',
@@ -176,11 +180,13 @@ export class WhatsAppGateway extends EventEmitter {
                 );
                 if (Buffer.isBuffer(buffer)) {
                   normalized.mediaBase64 = buffer.toString('base64');
-                  normalized.mimetype = rawMsg.message.stickerMessage.mimetype || 'image/webp';
-                  console.log(`[WhatsAppGateway] Figurinha baixada com sucesso (${buffer.length} bytes, mimetype: ${normalized.mimetype})`);
+                  normalized.mimetype =
+                    rawMsg.message?.stickerMessage?.mimetype ||
+                    (rawMsg.message?.videoMessage?.gifPlayback ? 'image/gif' : 'image/webp');
+                  console.log(`[WhatsAppGateway] Mídia baixada com sucesso (${buffer.length} bytes, mimetype: ${normalized.mimetype})`);
                 }
-              } catch (stickerErr) {
-                console.warn('[WhatsAppGateway] Falha ao baixar mídia da figurinha:', stickerErr);
+              } catch (mediaErr) {
+                console.warn('[WhatsAppGateway] Falha ao baixar mídia da figurinha/GIF:', mediaErr);
               }
             }
 

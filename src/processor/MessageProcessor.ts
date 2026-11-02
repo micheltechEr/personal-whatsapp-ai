@@ -102,9 +102,14 @@ export class MessageProcessor extends EventEmitter {
     const aggregatedContent = buffered.messages.map((m) => m.content).join(' ');
     // Keep the id of the first message in the batch as canonical id
     const primaryMessage = buffered.messages[0];
+    // Se alguma das mensagens do lote tiver mediaBase64 (como figurinha ou imagem), preserva para o pipeline de visão
+    const messageWithMedia = buffered.messages.find((m) => m.mediaBase64);
     const syntheticMessage: NormalizedMessage = {
       ...primaryMessage,
       content: aggregatedContent,
+      type: messageWithMedia ? messageWithMedia.type : primaryMessage.type,
+      mediaBase64: messageWithMedia?.mediaBase64,
+      mimetype: messageWithMedia?.mimetype || primaryMessage.mimetype,
     };
 
     await this.processSingleOrAggregated(syntheticMessage);
