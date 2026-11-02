@@ -71,11 +71,27 @@ describe('Phase 2 - Intelligence Engines', () => {
       expect(stickerRes.operationalAction).toBe('IGNORAR');
     });
 
-    it('identifies acknowledgments and suppresses unnecessary responses (H10/H16)', () => {
-      const res = intentClassifier.classify('Valeu, obrigado!');
-      expect(res.requiresResponse).toBe(false);
-      expect(res.operationalAction).toBe('IGNORAR');
-    });
+    it('differentiates boa noite as greeting vs farewell based on context (H16)', () => {
+    // Início de conversa sem histórico -> GREETING
+    const startMsg = intentClassifier.classify('Boa noite!', 'text', '');
+    expect(startMsg.intent).toBe('GREETING');
+    expect(startMsg.requiresResponse).toBe(true);
+
+    // Mensagem indicando que vai dormir ou em fim de conversa -> FAREWELL / IGNORAR
+    const sleepMsg = intentClassifier.classify('Boa noite, vou dormir agora', 'text', 'Conversando há horas');
+    expect(sleepMsg.intent).toBe('FAREWELL');
+    expect(sleepMsg.requiresResponse).toBe(false);
+
+    const endMsg = intentClassifier.classify('Valeu, boa noite!', 'text', 'Fechamos o trabalho de hoje.');
+    expect(endMsg.intent).toBe('FAREWELL');
+    expect(endMsg.requiresResponse).toBe(false);
+  });
+
+  it('identifies acknowledgments and suppresses unnecessary responses (H10/H16)', () => {
+    const res = intentClassifier.classify('Valeu, obrigado!');
+    expect(res.requiresResponse).toBe(false);
+    expect(res.operationalAction).toBe('IGNORAR');
+  });
 
     it('identifies urgent requests and flags urgency (H08)', () => {
       const res = intentClassifier.classify('Isso é urgente por favor, preciso agora!');

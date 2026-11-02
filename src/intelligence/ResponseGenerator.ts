@@ -242,11 +242,24 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         reason = 'H05: Faltam informações factuais no histórico/memória para responder com segurança.';
         factualConfidence = 60;
         responseConfidence = 65;
-        suggested = `Oi! Estou verificando isso e te respondo logo mais.`;
+        suggested = '';
+      } else if (matchedFact) {
+        suggested = `${matchedFact}`;
       } else {
-        suggested = matchedFact
-          ? `Oi! Conforme alinhamos: ${matchedFact}.`
-          : `Tudo bem por aqui! Estou acompanhando.`;
+        // Tenta gerar com LLM baseado no histórico real da conversa
+        const generated = await this.generateWithLLM(
+          message.content,
+          context.recentSummary,
+          context.contactMemory.relationship,
+          message.contactId
+        );
+        if (!generated || generated.trim().length === 0) {
+          decision = 'REVIEW_REQUIRED';
+          reason = 'H05: Sem resposta factual segura; enviado para revisão.';
+          suggested = '';
+        } else {
+          suggested = generated;
+        }
       }
     } else if (intent.intent === 'GREETING') {
       suggested = this.personalityEngine.getGreeting(context.contactMemory.relationship);

@@ -59,7 +59,26 @@ export class IntentClassifier {
     const isUrgent = this.urgentPatterns.some((p) => p.test(text));
     const isQuestion = this.questionPatterns.some((p) => p.test(text));
 
-    // Simple greetings (ex: "bom dia sr", "olá tudo bem")
+    // Despedidas explícitas ou expressões de encerramento/ir dormir (tchau, até mais, fui dormir, boa noite de despedida)
+    const isFarewell =
+      /\b(tchau|at[ée]\s+mais|at[ée]\s+logo|at[ée]\s+amanh[ãa]|fui|falou|dormir|vou\s+dormir|indo\s+dormir|dorme\s+bem|descansa|bom\s+descanso)\b/i.test(text) ||
+      (/\bboa\s+noite\b/i.test(text) && (
+        /\b(dormir|beijo|at[ée]|amanh[ãa]|fui|descansar)\b/i.test(text) ||
+        Boolean(recentConversationContext && recentConversationContext.length > 20)
+      ));
+
+    if (isFarewell && !isQuestion) {
+      return {
+        intent: 'FAREWELL',
+        isQuestion: false,
+        isUrgent: false,
+        requiresResponse: false, // H16: Encerra a conversa sem mandar resposta sem sentido (Silêncio inteligente)
+        operationalAction: 'IGNORAR',
+        confidence: 98,
+      };
+    }
+
+    // Saudações de início de conversa (ex: "boa noite", "olá tudo bem", "bom dia") quando NÃO há contexto recente longo
     if (/\b(oi|ol[áa]|bom\s+dia|boa\s+tarde|boa\s+noite)\b/i.test(text) && text.split(/\s+/).length <= 6) {
       return {
         intent: 'GREETING',
@@ -67,18 +86,6 @@ export class IntentClassifier {
         isUrgent: false,
         requiresResponse: true,
         operationalAction: 'RESPONDER',
-        confidence: 98,
-      };
-    }
-
-    // H16: Farewell / Despedidas (tchau, até mais, boa noite, valeu falou) -> IGNORAR (Silêncio inteligente)
-    if (/\b(tchau|at[ée]\s+mais|at[ée]\s+logo|at[ée]\s+amanh[ãa]|fui|falou|boa\s+noite|dorme\s+bem)\b/i.test(text) && text.split(/\s+/).length <= 5) {
-      return {
-        intent: 'FAREWELL',
-        isQuestion: false,
-        isUrgent: false,
-        requiresResponse: false, // H16: Encerra a conversa sem mandar resposta sem sentido
-        operationalAction: 'IGNORAR',
         confidence: 98,
       };
     }
