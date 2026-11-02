@@ -96,15 +96,31 @@ export class PersonalityEngine {
     }
 
     // Adapt to contact formality & relationship dynamics
-    if (contactMemory.relationship === 'romantic') {
-      // PROIBIDO chamar parceira/namorada de gírias de brother: "mano", "vei", "cara", "irmão", "brother", "parceiro"
-      formatted = formatted.replace(/\b(mano|vei|véi|cara|brother|parceiro)\b/gi, '');
-      // Remove duplos espaços resultantes
-      formatted = formatted.replace(/\s{2,}/g, ' ').trim();
+    if (contactMemory.relationship !== 'romantic') {
+      // Bloqueio rigoroso: se NÃO é relação romântica, NUNCA permite "amor", "vida", "meu bem", "mozão"
+      formatted = formatted.replace(/\b(amor|minha\s+vida|meu\s+bem|moz[ãa]o|amorzinho)\b/gi, '');
+    }
+
+    if (
+      contactMemory.gender === 'feminine' ||
+      contactMemory.gender === 'neutral' ||
+      contactMemory.relationship === 'romantic' ||
+      contactMemory.relationship === 'family'
+    ) {
+      // Bloqueio rigoroso: feminino, neutro, romântico ou família NUNCA recebem gírias de grupo ("mano", "vei", etc.)
+      formatted = formatted.replace(/\b(mano|vei|v[ée]i|cara|brother|parceiro|par[çc]a|irm[ãa]o)\b/gi, '');
     } else if (contactMemory.formalityLevel === 'high' || contactMemory.relationship === 'work' || contactMemory.relationship === 'professional') {
       // Clean excessive informal slang for formal contacts
       formatted = formatted.replace(/\b(e\s+a[íi]|opa|show|tranquilo|mano|cara|vei)\b/gi, 'olá');
     }
+
+    // Remove duplos espaços resultantes e limpa vírgulas soltas
+    formatted = formatted
+      .replace(/,\s*,+/g, ',')
+      .replace(/\s{2,}/g, ' ')
+      .replace(/\s+([.,!?])/g, '$1')
+      .replace(/^([.,!?]\s*)+/, '')
+      .trim();
 
     return formatted;
   }

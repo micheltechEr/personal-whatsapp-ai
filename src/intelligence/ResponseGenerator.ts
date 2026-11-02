@@ -34,11 +34,13 @@ export class ResponseGenerator {
     messageText: string,
     contextSummary: string,
     relationship: string,
-    contactId?: string
+    contactId?: string,
+    contactName?: string,
+    gender?: string
   ): Promise<string | null> {
     const ownerName = this.personalityEngine.getOwnerName();
     let ragFewShotSection = '';
-    let styleGuidance = `- Tom: direto, conciso, gírias normais de WhatsApp (ex: kkk, pow, mano, blz), sem formalismo.`;
+    let styleGuidance = `- Tom: direto, conciso, WhatsApp natural, sem formalismo artificial.`;
 
     if (this.styleRAG && contactId) {
       const ragContext = this.styleRAG.retrieveStyleContext(messageText, contactId, 4);
@@ -60,23 +62,30 @@ export class ResponseGenerator {
       }
     }
 
-    let relationshipVocatives = '';
+    let vocativeGuidance = '';
     if (relationship === 'romantic') {
-      relationshipVocatives = `\n- RELAÇÃO ROMÂNTICA / PARCEIRA: É TOTALMENTE PROIBIDO usar "mano", "vei", "cara", "irmão", "brother", "parça". Responda com afeto de namorado/parceiro (ex: "amor", "vida", "linda" ou tom carinhoso). Jamais use gírias masculinas de amigos.`;
-    } else if (relationship === 'family') {
-      relationshipVocatives = `\n- RELAÇÃO FAMILIAR: Proibido usar "mano", "vei" ou gírias de rua. Trate com respeito e carinho.`;
+      vocativeGuidance = `\n- RELAÇÃO ROMÂNTICA / PARCEIRA: Trate com afeto e carinho de relacionamento. Proibido chamar de "mano", "vei", "cara", "brother".`;
+    } else {
+      vocativeGuidance = `\n- RELAÇÃO NÃO-ROMÂNTICA: É TOTALMENTE PROIBIDO usar "amor", "vida", "meu bem", "linda", "bebê", "mozão" ou qualquer termo carinhoso romântico.`;
+      if (gender === 'feminine') {
+        vocativeGuidance += `\n- INTERLOCUTORA FEMININA (${contactName || 'Mulher'}): Proibido chamar de "mano", "vei", "cara", "brother", "parça". Trate de forma neutra, simpática e educada pelo nome ou sem vocativo.`;
+      } else if (gender === 'neutral') {
+        vocativeGuidance += `\n- INTERLOCUTOR NEUTRO / NÃO IDENTIFICADO: Evite vocativos de gênero. Responda diretamente sem colocar "mano", "vei", "cara" nem apelidos íntimos.`;
+      } else if (gender === 'masculine') {
+        vocativeGuidance += `\n- INTERLOCUTOR MASCULINO (${contactName || 'Homem'}): Pode usar "mano", "vei" se o contexto for casual entre amigos.`;
+      }
     }
 
     const systemPrompt = `Você é ${ownerName} conversando no seu WhatsApp pessoal.
 Você NUNCA deve responder como robô assistente nem usar padrões engessados ou forçados.
 
 DIRETRIZES DE NATURALIDADE E PERSONALIDADE POR CONVERSA:
-- ADAPTAÇÃO AO INTERLOCUTOR: Observe o tom do interlocutor no contexto da conversa. Se ele for direto e curto, seja direto e curto. Se for brincalhão, acompanhe de leve. Se for sério ou sobre trabalho, seja profissional e prestativo.
+- ADAPTAÇÃO AO INTERLOCUTOR: Interlocutor: ${contactName || 'Contato'} (Gênero: ${gender || 'neutro'}, Relação: ${relationship}).
+- VOCATIVOS CONTROLADOS:${vocativeGuidance}
 - PROIBIÇÃO DE RISADA FORÇADA: NUNCA coloque "kkk", "kkkk", "llkkk" ou risadas automáticas no fim de mensagens afirmativas (como "Beleza", "Show", "Valeu", "Tranquilo"). SÓ use risada se o interlocutor tiver feito uma piada genuína, enviado meme ou rido antes. Não force simpatia artificial.
 - COERÊNCIA CONTEXTUAL: Preste muita atenção em quem está falando e ao sujeito da ação. Se a pessoa diz "Demora pra achar figurinha", ela está justificando a si mesma, não você. Não peça desculpas nem assuma ações alheias.
 - CONCISÃO NATURAL: Responda exatamente como uma pessoa real responde no WhatsApp: 1 frase curta, objetiva, sem enrolação.
-${styleGuidance}${relationshipVocatives}
-- Relação com interlocutor: ${relationship}
+${styleGuidance}
 - Contexto recente da conversa: ${contextSummary || 'Início de conversa'}${ragFewShotSection}
 
 Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
@@ -259,7 +268,9 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
           message.content,
           context.recentSummary,
           context.contactMemory.relationship,
-          message.contactId
+          message.contactId,
+          context.contactName || context.contactMemory.name,
+          context.contactMemory.gender
         );
         if (!generated || generated.trim().length === 0) {
           decision = 'REVIEW_REQUIRED';
@@ -303,7 +314,9 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
           promptSticker,
           context.recentSummary,
           context.contactMemory.relationship,
-          message.contactId
+          message.contactId,
+          context.contactName || context.contactMemory.name,
+          context.contactMemory.gender
         );
         suggested = generated || stickerInfo.suggestedReaction || 'Kkkkk boa';
       } else {
@@ -332,7 +345,9 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         message.content,
         context.recentSummary,
         context.contactMemory.relationship,
-        message.contactId
+        message.contactId,
+        context.contactName || context.contactMemory.name,
+        context.contactMemory.gender
       );
 
       // Fallback para conversas ultra curtas caso o LLM demore ou não retorne

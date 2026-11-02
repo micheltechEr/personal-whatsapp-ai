@@ -69,10 +69,13 @@ export interface NormalizedMessage {
   mimetype?: string;    // ex: image/webp
 }
 
+export type GenderIdentity = 'masculine' | 'feminine' | 'neutral';
+
 export interface ContactMemory {
   contactId: string;
   tenantId?: string;
   name?: string;
+  gender?: GenderIdentity;
   relationship: 'romantic' | 'family' | 'friend' | 'work' | 'professional' | 'informal' | 'unknown';
   formalityLevel: 'low' | 'medium' | 'high';
   notes: string[];

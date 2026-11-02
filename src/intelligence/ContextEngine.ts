@@ -1,8 +1,10 @@
 import { NormalizedMessage, ContactMemory, PendingTask } from '../types/index.js';
 import { StorageAdapter } from '../storage/StorageAdapter.js';
+import { GenderDetector } from './GenderDetector.js';
 
 export interface ConversationContext {
   contactId: string;
+  contactName?: string;
   contactMemory: ContactMemory;
   recentMessages: NormalizedMessage[];
   pendingTasks: PendingTask[];
@@ -50,12 +52,23 @@ export class ContextEngine {
 
     const isOwnerLastSender = recent.length > 0 && recent[recent.length - 1].fromMe;
 
-    // Detecção automática de relacionamento (romântico, familiar, profissional)
-    const combinedHistory = recent.map((m) => m.content.toLowerCase()).join(' ');
-    const isRomantic = /\b(amor|amorzinho|vida|minha\s+vida|meu\s+bem|namorada|namorado|bb|linda|paix[ãa]o|meu\s+amor|te\s+amo|gata)\b/i.test(combinedHistory);
-    const isFamily = /\b(m[ãa]e|pai|irm[ãa]|irm[ãa]o|tio|tia|v[óo]|vov[ôo])\b/i.test(combinedHistory);
+    // Identifica o nome do contato a partir de mensagens recebidas
+    const contactMsgWithName = [...recent].reverse().find((m) => !m.fromMe && m.senderName);
+    const contactName = contactMsgWithName?.senderName || mem.name || undefined;
+    if (contactName && !mem.name) {
+      mem.name = contactName;
+    }
 
-    if (isRomantic && mem.relationship !== 'romantic') {
+    // Identifica o gênero a partir do nome
+    const detectedGender = GenderDetector.detectGender(contactName);
+    mem.gender = detectedGender;
+
+    // Detecção estrita de relacionamento romântico (apenas com expressões amorosas inequívocas)
+    const combinedHistory = recent.map((m) => m.content.toLowerCase()).join(' ');
+    const isExplicitlyRomantic = /\b(te\s+amo|meu\s+amor|meu\s+namorado|minha\s+namorada|amor\s+da\s+minha\s+vida|moz[ãa]o)\b/i.test(combinedHistory);
+    const isFamily = /\b(minha\s+m[ãa]e|meu\s+pai|meu\s+irm[ãa]o|minha\s+irm[ãa]|minha\s+tia|meu\s+tio)\b/i.test(combinedHistory);
+
+    if (isExplicitlyRomantic && mem.relationship !== 'romantic') {
       mem.relationship = 'romantic';
       await this.storage.saveContactMemory(mem);
     } else if (isFamily && (mem.relationship === 'unknown' || mem.relationship === 'informal')) {

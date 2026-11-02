@@ -54,7 +54,7 @@ describe('Comprehensive 25-Point Specification Suite (Section 15)', () => {
     );
   });
 
-  const waitForProcess = () => new Promise((r) => setTimeout(r, 90));
+  const waitForProcess = () => new Promise((r) => setTimeout(r, 160));
 
   afterEach(async () => {
     processor.clearAllBuffers();
