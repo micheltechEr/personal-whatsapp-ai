@@ -50,4 +50,8 @@ export interface StorageAdapter {
   getKeywordRules(tenantId?: string): Promise<HeuristicKeywordRule[]>;
   saveKeywordRule(rule: HeuristicKeywordRule, tenantId?: string): Promise<void>;
   deleteKeywordRule(id: string, tenantId?: string): Promise<boolean>;
+
+  // Settings & Limits
+  getSetting(key: string, tenantId?: string): Promise<string | null>;
+  setSetting(key: string, value: string, tenantId?: string): Promise<void>;
 }

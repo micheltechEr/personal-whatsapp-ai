@@ -158,6 +158,11 @@ export function createServer(dependencies: {
       return reply.status(400).send({ error: 'Limite diário deve ser um número entre 1 e 500.' });
     }
     autonomy.setMaxDailyAutoReplies(num);
+
+    // Persiste o limite diário no banco de dados para sobreviver a reinicializações
+    const tenantId = container?.tenant.id;
+    await dependencies.storage.setSetting('max_daily_auto_replies', String(num), tenantId);
+
     return { success: true, maxDailyAutoReplies: num };
   });
 
@@ -781,11 +786,17 @@ export function createServer(dependencies: {
       const val = Number(input.value);
       if (!val || val < 1) return;
 
-      await fetch('/api/autonomy/limit', {
+      const res = await fetch('/api/autonomy/limit', {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ limit: val })
       });
+      const data = await res.json();
+      if (data.success) {
+        alert('Limite diário atualizado e salvo no banco de dados com sucesso!');
+      } else {
+        alert(data.error || 'Erro ao salvar limite.');
+      }
       loadData();
     }
 

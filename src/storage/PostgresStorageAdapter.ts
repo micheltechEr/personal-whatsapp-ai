@@ -378,7 +378,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
     return res.rows.length > 0;
   }
 
-  async getKeywordRules(): Promise<HeuristicKeywordRule[]> {
+  async getKeywordRules(tenantId?: string): Promise<HeuristicKeywordRule[]> {
     const res = await this.pool.query(`SELECT * FROM heuristic_keyword_rules`);
     return res.rows.map((r) => ({
       id: r.id,
@@ -389,7 +389,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
     }));
   }
 
-  async saveKeywordRule(rule: HeuristicKeywordRule): Promise<void> {
+  async saveKeywordRule(rule: HeuristicKeywordRule, tenantId?: string): Promise<void> {
     await this.pool.query(
       `INSERT INTO heuristic_keyword_rules (id, word, category, weight, description)
        VALUES ($1, $2, $3, $4, $5)
@@ -398,7 +398,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
   }
 
-  async deleteKeywordRule(id: string): Promise<boolean> {
+  async deleteKeywordRule(id: string, tenantId?: string): Promise<boolean> {
     const res = await this.pool.query(`DELETE FROM heuristic_keyword_rules WHERE id = $1`, [id]);
     return (res.rowCount || 0) > 0;
   }
@@ -438,4 +438,10 @@ export class PostgresStorageAdapter implements StorageAdapter {
       createdAt: Number(r.created_at),
     };
   }
+
+  async getSetting(key: string, tenantId?: string): Promise<string | null> {
+    return null;
+  }
+
+  async setSetting(key: string, value: string, tenantId?: string): Promise<void> {}
 }

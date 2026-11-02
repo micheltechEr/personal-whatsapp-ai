@@ -38,10 +38,16 @@ async function main() {
     defaultAdmin = reg.tenant || null;
   }
 
+  // Carrega o limite diário padrão persistido
+  const savedGlobalLimit = await storage.getSetting('max_daily_auto_replies');
+  const globalMaxDaily = savedGlobalLimit ? Number(savedGlobalLimit) : 30;
+
   // Inicializa o container do admin
   let adminRuntime = defaultAdmin ? await tenantManager.getOrCreateRuntime(defaultAdmin) : null;
   const gateway = adminRuntime ? adminRuntime.gateway : new WhatsAppGateway();
-  const autonomyController = adminRuntime ? adminRuntime.autonomyController : new AutonomyController({ globalMode: 'AUTONOMOUS_CONTROLLED' });
+  const autonomyController = adminRuntime
+    ? adminRuntime.autonomyController
+    : new AutonomyController({ globalMode: 'AUTONOMOUS_CONTROLLED', maxDailyAutoRepliesDefault: globalMaxDaily });
   const personalityEngine = adminRuntime ? adminRuntime.personalityEngine : new PersonalityEngine('Ângelo Miguel');
   const approvalManager = adminRuntime ? adminRuntime.approvalManager : new ApprovalManager(storage, new MessageDispatcher(storage), personalityEngine);
   const hybridInterpreter = adminRuntime ? adminRuntime.hybridInterpreter : new HybridHeuristicInterpreter(storage);

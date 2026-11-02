@@ -131,9 +131,13 @@ export class TenantManager {
     const intentClassifier = new IntentClassifier(this.jevClient);
     const riskEngine = new RiskEngine(this.jevClient);
 
+    // Carrega o limite diário persistido no banco de dados para este tenant (fallback para o padrão)
+    const savedLimit = await this.storage.getSetting('max_daily_auto_replies', tenant.id);
+    const maxDailyLimit = savedLimit ? Number(savedLimit) : 30;
+
     const autonomyController = new AutonomyController({
       globalMode: 'AUTONOMOUS_CONTROLLED',
-      maxDailyAutoRepliesDefault: 30,
+      maxDailyAutoRepliesDefault: maxDailyLimit || 30,
     });
 
     const dispatcher = new MessageDispatcher(this.storage, gateway);

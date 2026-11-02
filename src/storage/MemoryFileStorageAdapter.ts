@@ -21,6 +21,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   private sentMessages: Set<string> = new Set();
   private keywordRules: Map<string, HeuristicKeywordRule> = new Map();
   private tenants: Map<string, TenantUser> = new Map();
+  private settings: Map<string, string> = new Map();
   private writeLock: Promise<void> = Promise.resolve();
   private initialized = false;
 
@@ -68,6 +69,11 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       }
       if (parsed.tenants) {
         for (const t of parsed.tenants) this.tenants.set(t.id, t);
+      }
+      if (parsed.settings) {
+        for (const [k, v] of Object.entries(parsed.settings)) {
+          this.settings.set(k, String(v));
+        }
       }
 
       // Migração automática de registros legados pré-multi-tenant para a conta principal
@@ -135,6 +141,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       sentMessages: Array.from(this.sentMessages),
       keywordRules: Array.from(this.keywordRules.values()),
       tenants: Array.from(this.tenants.values()),
+      settings: Object.fromEntries(this.settings.entries()),
     };
 
     try {
@@ -343,12 +350,24 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   }
 
   async deleteKeywordRule(id: string, tenantId?: string): Promise<boolean> {
-    const rule = this.keywordRules.get(id);
-    if (rule && tenantId && rule.tenantId && rule.tenantId !== tenantId) return false;
     const deleted = this.keywordRules.delete(id);
     if (deleted) {
       await this.persistAll();
     }
     return deleted;
+  }
+
+  async getSetting(key: string, tenantId?: string): Promise<string | null> {
+    const fullKey = tenantId ? `${tenantId}:${key}` : key;
+    return this.settings.get(fullKey) || this.settings.get(key) || null;
+  }
+
+  async setSetting(key: string, value: string, tenantId?: string): Promise<void> {
+    const fullKey = tenantId ? `${tenantId}:${key}` : key;
+    this.settings.set(fullKey, value);
+    if (!tenantId) {
+      this.settings.set(key, value);
+    }
+    await this.persistAll();
   }
 }
