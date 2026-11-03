@@ -75,6 +75,7 @@ export interface NormalizedMessage {
   mediaBase64?: string; // Imagem/Figurinha em base64 para o Vision Model
   mimetype?: string;    // ex: image/webp
   quoted?: QuotedContextInfo; // Referência contextual explícita (contextInfo.stanzaId)
+  mentionedJids?: string[];   // JIDs de menções (@5575...) no grupo
 }
 
 export type GenderIdentity = 'masculine' | 'feminine' | 'neutral';

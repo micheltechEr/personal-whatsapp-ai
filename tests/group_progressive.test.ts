@@ -87,6 +87,39 @@ describe('Progressive Group Management (Testing Groups Safely)', () => {
     expect(grpAudits.length).toBe(0);
   });
 
+  it('ignores conversations between other members even if group is enabled', async () => {
+    const groupJid = '120363000555666@g.us';
+
+    await storage.saveGroup({
+      id: groupJid,
+      name: 'Grupo com Bot Habilitado',
+      lastMessage: 'Oi galera',
+      lastActivityTimestamp: Date.now(),
+      botEnabled: true,
+    });
+
+    // Mensagem de um membro falando com outro membro (sem marcar Ângelo, sem citar Ângelo)
+    const msg: NormalizedMessage = {
+      id: 'grp-msg-unrelated',
+      contactId: groupJid,
+      remoteJid: groupJid,
+      content: 'Carlos, você viu o que o professor falou ontem na aula?',
+      timestamp: Date.now(),
+      fromMe: false,
+      isGroup: true,
+      type: 'text',
+      mentionedJids: [],
+    };
+
+    await processor.onIncomingMessage(msg);
+    await new Promise((r) => setTimeout(r, 60));
+
+    // NENHUMA resposta deve ser gerada
+    const audits = await storage.getAuditLogs();
+    const grpAudits = audits.filter((a) => a.contactId === groupJid);
+    expect(grpAudits.length).toBe(0);
+  });
+
   it('processes group messages when user explicitly enables the bot for that group', async () => {
     const groupJid = '120363000333444@g.us';
 

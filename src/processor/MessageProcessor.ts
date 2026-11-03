@@ -54,6 +54,40 @@ export class MessageProcessor extends EventEmitter {
       if (!groupInfo || !groupInfo.botEnabled) {
         return;
       }
+
+      // REGRA DE OURO PARA GRUPOS: O agente SÓ PODE interagir se:
+      // A) O proprietário foi mencionado via tag (@5575... / @numero)
+      // B) O nome do proprietário foi explicitamente mencionado no texto (ex: "angelo", "miguel")
+      // C) Uma mensagem do próprio proprietário foi citada/marcada (quoted participant)
+      const ownerName = this.personalityEngine.getOwnerName().toLowerCase();
+      const ownerFirstWord = ownerName.split(/\s+/)[0]; // ex: "ângelo" ou "miguel"
+      const textLower = message.content.toLowerCase();
+
+      // Checa menção de nome no texto
+      const mentionedNameInText =
+        Boolean(ownerFirstWord && textLower.includes(ownerFirstWord)) ||
+        textLower.includes('angelo') ||
+        textLower.includes('miguel');
+
+      // Checa se a mensagem citada é do proprietário
+      let quotedOwnerMessage = false;
+      if (message.quoted?.stanzaId) {
+        const quotedMsg = await this.storage.getMessage(message.quoted.stanzaId);
+        if (quotedMsg && quotedMsg.fromMe) {
+          quotedOwnerMessage = true;
+        }
+      }
+
+      // Checa se o proprietário foi marcado com @ (mentionedJids)
+      const hasDirectMention =
+        Boolean(message.mentionedJids && message.mentionedJids.length > 0);
+
+      const isDirectedToOwner = mentionedNameInText || quotedOwnerMessage || hasDirectMention;
+
+      if (!isDirectedToOwner) {
+        // Conversa paralela entre outros membros do grupo -> SILÊNCIO TOTAL
+        return;
+      }
     }
 
     // 2. Persist message immediately

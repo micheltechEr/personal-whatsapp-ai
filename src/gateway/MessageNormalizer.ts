@@ -146,6 +146,8 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo, allowGrou
     };
   }
 
+  const mentionedJids: string[] = rawContextInfo?.mentionedJid || [];
+
   return {
     id,
     contactId,
@@ -160,6 +162,7 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo, allowGrou
     type,
     mimetype,
     quoted,
+    mentionedJids,
     raw: rawMsg,
   };
 }
