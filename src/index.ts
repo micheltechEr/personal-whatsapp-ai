@@ -54,6 +54,18 @@ async function main() {
   const hybridInterpreter = adminRuntime ? adminRuntime.hybridInterpreter : new HybridHeuristicInterpreter(storage);
   const styleRAG = adminRuntime ? adminRuntime.styleRAG : new OwnerStyleRAG(storage, defaultAdmin?.id);
 
+  // Garante o fato pessoal sobre relacionamento pré-cadastrado para nunca errar sobre namoro
+  const existingFacts = await storage.getOwnerFacts(defaultAdmin?.id);
+  if (existingFacts.length === 0) {
+    await storage.saveOwnerFact({
+      id: 'fact-relacionamento-1',
+      tenantId: defaultAdmin?.id,
+      topic: 'Relacionamento',
+      fact: 'Namoro com a Anny, sou comprometido, apaixonado e fiel.',
+      createdAt: Date.now(),
+    }, defaultAdmin?.id);
+  }
+
   const port = Number(process.env.PORT) || 3000;
   const server = createServer({
     storage,

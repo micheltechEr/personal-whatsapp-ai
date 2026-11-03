@@ -15,6 +15,8 @@ import { PersonalityEngine } from './PersonalityEngine.js';
 
 import { VisionStickerInterpreter } from './VisionStickerInterpreter.js';
 
+import { StorageAdapter } from '../storage/StorageAdapter.js';
+
 export class ResponseGenerator {
   private llmClient: AgnosticLLMClient;
   private visionInterpreter: VisionStickerInterpreter;
@@ -24,10 +26,15 @@ export class ResponseGenerator {
     config?: LLMClientConfig,
     private hybridInterpreter?: HybridHeuristicInterpreter,
     private styleRAG?: OwnerStyleRAG,
-    visionInterpreter?: VisionStickerInterpreter
+    visionInterpreter?: VisionStickerInterpreter,
+    private storage?: StorageAdapter
   ) {
     this.llmClient = new AgnosticLLMClient(config);
     this.visionInterpreter = visionInterpreter || new VisionStickerInterpreter(config);
+  }
+
+  public setStorage(storage: StorageAdapter): void {
+    this.storage = storage;
   }
 
   private async generateWithLLM(
@@ -83,6 +90,16 @@ export class ResponseGenerator {
       explicitReferencePrompt = `\n- REFERÊNCIA EXPLÍCITA DE CONVERSA CITADA (contextInfo): O contato marcou/citou uma mensagem anterior específica no WhatsApp:\n  Mensagem citada: "${explicitReferencedMessage.original.content}"\n  Vizinhança da conversa na época: ${explicitReferencedMessage.surroundingContext}\n  O contato enviou agora: "${messageText}".\n  Avalie se o contato está cobrando uma resposta, retomando um assunto pendente ou confirmando algo daquela época, e responda com total precisão contextual.`;
     }
 
+    // Fatos Pessoais e Curiosidades Absolutas (Injetadas da aba de Curiosidades do Cockpit)
+    let ownerFactsPrompt = '';
+    if (this.storage) {
+      const facts = await this.storage.getOwnerFacts();
+      if (facts.length > 0) {
+        const factList = facts.map((f) => `- [${f.topic}]: ${f.fact}`).join('\n');
+        ownerFactsPrompt = `\n\nFATOS PESSOAIS ABSOLUTOS E VERDADES SOBRE ${ownerName.toUpperCase()} (NUNCA CONTRADIGA ESSES FATOS):\n${factList}\nSE PERGUNTAREM OU TOCAREM EM ASSUNTOS COMO RELACIONAMENTO, TRABALHO OU VIDA PESSOAL, SIGA RIGOROSAMENTE ESSES FATOS ACIMA. NUNCA INVENTE QUE ESTÁ SOLTEIRO OU QUE NÃO NAMORA SE ESTIVER CADASTRADO QUE NAMORA.`;
+      }
+    }
+
     const systemPrompt = `Você é ${ownerName} conversando no seu WhatsApp pessoal.
 Você NUNCA deve responder como robô assistente nem usar padrões engessados ou forçados.
 
@@ -90,7 +107,7 @@ DIRETRIZES DE NATURALIDADE E PERSONALIDADE POR CONVERSA:
 - ADAPTAÇÃO AO INTERLOCUTOR: Interlocutor: ${contactName || 'Contato'} (Gênero: ${gender || 'neutro'}, Relação: ${relationship}).
 - VOCATIVOS CONTROLADOS:${vocativeGuidance}
 - PROIBIÇÃO DE RISADA FORÇADA: NUNCA coloque "kkk", "kkkk", "llkkk" ou risadas automáticas no fim de mensagens afirmativas (como "Beleza", "Show", "Valeu", "Tranquilo"). SÓ use risada se o interlocutor tiver feito uma piada genuína, enviado meme ou rido antes. Não force simpatia artificial.
-- COERÊNCIA CONTEXTUAL: Preste muita atenção em quem está falando e ao sujeito da ação. Se a pessoa diz "Demora pra achar figurinha", ela está justificando a si mesma, não você. Não peça desculpas nem assuma ações alheias.${explicitReferencePrompt}
+- COERÊNCIA CONTEXTUAL: Preste muita atenção em quem está falando e ao sujeito da ação. Se a pessoa diz "Demora pra achar figurinha", ela está justificando a si mesma, não você. Não peça desculpas nem assuma ações alheias.${explicitReferencePrompt}${ownerFactsPrompt}
 - CONCISÃO NATURAL: Responda exatamente como uma pessoa real responde no WhatsApp: 1 frase curta, objetiva, sem enrolação.
 ${styleGuidance}
 - Contexto recente da conversa: ${contextSummary || 'Início de conversa'}${ragFewShotSection}

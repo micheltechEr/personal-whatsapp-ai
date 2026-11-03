@@ -150,6 +150,14 @@ export interface AuditLogEntry {
   requiresHuman: boolean;
 }
 
+export interface OwnerFactRule {
+  id: string;
+  tenantId?: string;
+  topic: string; // ex: 'Relacionamento', 'Trabalho', 'Pets', 'Gostos Pessoais'
+  fact: string;  // ex: 'Namoro com Anny há 2 anos, sou comprometido e fiel'
+  createdAt: number;
+}
+
 export interface WhatsAppGroupInfo {
   id: string; // group JID (ex: 120363xxx@g.us)
   name: string;

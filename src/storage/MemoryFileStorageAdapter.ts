@@ -11,6 +11,7 @@ import {
   TenantUser,
   ImportantConversationSummary,
   WhatsAppGroupInfo,
+  OwnerFactRule,
 } from '../types/index.js';
 
 export class MemoryFileStorageAdapter implements StorageAdapter {
@@ -26,6 +27,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   private settings: Map<string, string> = new Map();
   private importantConversations: Map<string, ImportantConversationSummary> = new Map();
   private groups: Map<string, WhatsAppGroupInfo> = new Map();
+  private ownerFacts: Map<string, OwnerFactRule> = new Map();
   private writeLock: Promise<void> = Promise.resolve();
   private initialized = false;
 
@@ -87,6 +89,11 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       if (parsed.groups) {
         for (const g of parsed.groups) {
           this.groups.set(g.id, g);
+        }
+      }
+      if (parsed.ownerFacts) {
+        for (const f of parsed.ownerFacts) {
+          this.ownerFacts.set(f.id, f);
         }
       }
 
@@ -158,6 +165,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       settings: Object.fromEntries(this.settings.entries()),
       importantConversations: Array.from(this.importantConversations.values()),
       groups: Array.from(this.groups.values()),
+      ownerFacts: Array.from(this.ownerFacts.values()),
     };
 
     try {
@@ -445,5 +453,35 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       group.botEnabled = enabled;
       await this.persistAll();
     }
+  }
+
+  async saveOwnerFact(fact: OwnerFactRule, tenantId?: string): Promise<void> {
+    const tid = tenantId || fact.tenantId;
+    this.ownerFacts.set(fact.id, { ...fact, tenantId: tid });
+    await this.persistAll();
+  }
+
+  async getOwnerFacts(tenantId?: string): Promise<OwnerFactRule[]> {
+    const primaryIds = Array.from(this.tenants.values())
+      .filter((t) => t.username === 'admin' || t.username === 'omigueldev')
+      .map((t) => t.id);
+    const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
+
+    const all = Array.from(this.ownerFacts.values()).filter((f) => {
+      if (isPrimaryQuery) {
+        return !f.tenantId || primaryIds.includes(f.tenantId) || f.tenantId === tenantId;
+      }
+      return f.tenantId === tenantId;
+    });
+
+    return all.sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  async deleteOwnerFact(id: string, tenantId?: string): Promise<boolean> {
+    const deleted = this.ownerFacts.delete(id);
+    if (deleted) {
+      await this.persistAll();
+    }
+    return deleted;
   }
 }

@@ -8,7 +8,7 @@ import { PersonalityEngine } from '../intelligence/PersonalityEngine.js';
 import { HybridHeuristicInterpreter } from '../intelligence/HybridHeuristicInterpreter.js';
 import { OwnerStyleRAG } from '../intelligence/OwnerStyleRAG.js';
 import { TenantManager, TenantRuntimeContainer } from '../tenant/TenantManager.js';
-import { HeuristicKeywordRule } from '../types/index.js';
+import { HeuristicKeywordRule, OwnerFactRule } from '../types/index.js';
 
 export function createServer(dependencies: {
   storage: StorageAdapter;
@@ -240,6 +240,39 @@ export function createServer(dependencies: {
     const tenantId = container?.tenant.id;
     const list = await dependencies.storage.getGroups(tenantId);
     return { success: true, groups: list };
+  });
+
+  // 4.3 Owner Facts & Curiosities (Fatos Pessoais / Verdades Absolutas)
+  app.get('/api/owner/facts', async (request) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    return dependencies.storage.getOwnerFacts(tenantId);
+  });
+
+  app.post('/api/owner/facts', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    const { topic, fact } = request.body as { topic: string; fact: string };
+    if (!fact || !fact.trim()) {
+      return reply.status(400).send({ error: 'Fato/curiosidade não pode ser vazio.' });
+    }
+    const rule: OwnerFactRule = {
+      id: `fact-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      tenantId,
+      topic: topic || 'Pessoal',
+      fact: fact.trim(),
+      createdAt: Date.now(),
+    };
+    await dependencies.storage.saveOwnerFact(rule, tenantId);
+    return { success: true, fact: rule };
+  });
+
+  app.delete('/api/owner/facts/:id', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    const { id } = request.params as { id: string };
+    const success = await dependencies.storage.deleteOwnerFact(id, tenantId);
+    return { success };
   });
 
   app.post('/api/approvals/:id/approve', async (request, reply) => {
@@ -585,6 +618,50 @@ export function createServer(dependencies: {
     </div>
   </div>
 
+  <!-- Curiosidades & Fatos Absolutos do Proprietário (Aba Colapsável) -->
+  <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 24px; overflow: hidden;">
+    <div style="padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; background: rgba(255,255,255,0.02);" onclick="toggleFactsAccordion()">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 16px;">💡</span>
+        <div>
+          <h3 style="font-size: 15px; font-weight: 600; margin: 0; display: inline;">Curiosidades & Fatos Pessoais Absolutos</h3>
+          <span style="font-size: 12px; color: var(--muted); margin-left: 8px;">(Fatos que o bot NUNCA pode inventar ou contradizer, como namoro, estado civil, trabalho, etc.)</span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span id="facts-arrow" style="font-size: 12px; color: var(--accent); transition: transform 0.2s;">▼ Expandir</span>
+      </div>
+    </div>
+    
+    <div id="facts-content" style="display: none; padding: 20px; border-top: 1px solid var(--border);">
+      <p style="color: var(--muted); font-size: 12px; margin-bottom: 16px;">
+        Cadastre aqui verdades pessoais indiscutíveis. A IA consultará esta lista antes de gerar qualquer resposta e está <strong>proibida de contradizer esses fatos</strong>.
+      </p>
+
+      <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+        <input id="fact-topic" type="text" placeholder="Tópico (ex: Relacionamento, Trabalho, Pets)" style="width: 200px; padding: 8px 12px; background: #07080B; border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px;" />
+        <input id="fact-content" type="text" placeholder="Fato / Verdade Absoluta (ex: Namoro com a Anny, sou comprometido e fiel)" style="flex: 1; min-width: 280px; padding: 8px 12px; background: #07080B; border: 1px solid var(--border); color: var(--text); border-radius: 6px; font-size: 13px;" />
+        <button style="border-color: #22C55E; color: #22C55E; font-size: 12px;" onclick="addOwnerFact()">+ Salvar Fato</button>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 180px;">Tópico</th>
+              <th>Fato Declarado</th>
+              <th style="width: 140px;">Data de Cadastro</th>
+              <th style="width: 100px;">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="facts-body">
+            <tr><td colspan="4" class="empty">Nenhuma curiosidade cadastrada ainda.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="section-title">Auditoria em Tempo Real (Decisões Determinísticas)</div>
   <div class="table-container">
     <table id="audit-table">
@@ -878,6 +955,25 @@ export function createServer(dependencies: {
           }).join('');
         }
 
+        // Load Owner Facts & Curiosities
+        const factsRes = await fetch('/api/owner/facts', { headers: getAuthHeaders() });
+        const factsList = await factsRes.json();
+        const factsBody = document.getElementById('facts-body');
+        if (!factsList || factsList.length === 0) {
+          factsBody.innerHTML = '<tr><td colspan="4" class="empty">Nenhuma curiosidade ou fato pessoal cadastrado.</td></tr>';
+        } else {
+          factsBody.innerHTML = factsList.map(f => \`
+            <tr>
+              <td><span style="background: rgba(56, 189, 248, 0.1); color: #38BDF8; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 11px;">\${f.topic}</span></td>
+              <td style="font-size: 13px;">\${f.fact}</td>
+              <td style="color: var(--muted); font-size: 11px;">\${new Date(f.createdAt).toLocaleDateString()}</td>
+              <td>
+                <button class="btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteOwnerFact('\${f.id}')">Excluir</button>
+              </td>
+            </tr>
+          \`).join('');
+        }
+
         // Load Audit Logs
         const auditRes = await fetch('/api/audit', { headers: getAuthHeaders() });
         const logs = await auditRes.json();
@@ -942,6 +1038,42 @@ export function createServer(dependencies: {
 
     async function deleteKeyword(id) {
       await fetch(\`/api/heuristics/keywords/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
+      loadData();
+    }
+
+    function toggleFactsAccordion() {
+      const content = document.getElementById('facts-content');
+      const arrow = document.getElementById('facts-arrow');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        arrow.textContent = '▲ Recolher';
+      } else {
+        content.style.display = 'none';
+        arrow.textContent = '▼ Expandir';
+      }
+    }
+
+    async function addOwnerFact() {
+      const topicInput = document.getElementById('fact-topic');
+      const factInput = document.getElementById('fact-content');
+      const topic = topicInput.value.trim() || 'Pessoal';
+      const fact = factInput.value.trim();
+      if (!fact) {
+        alert('Digite o fato ou curiosidade pessoal');
+        return;
+      }
+
+      await fetch('/api/owner/facts', {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ topic, fact })
+      });
+      factInput.value = '';
+      loadData();
+    }
+
+    async function deleteOwnerFact(id) {
+      await fetch(\`/api/owner/facts/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
       loadData();
     }
 

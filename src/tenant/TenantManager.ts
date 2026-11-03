@@ -125,7 +125,9 @@ export class TenantManager {
       personalityEngine,
       undefined,
       hybridInterpreter,
-      styleRAG
+      styleRAG,
+      undefined,
+      this.storage
     );
 
     const intentClassifier = new IntentClassifier(this.jevClient);

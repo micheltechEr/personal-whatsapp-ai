@@ -8,6 +8,7 @@ import {
   TenantUser,
   ImportantConversationSummary,
   WhatsAppGroupInfo,
+  OwnerFactRule,
 } from '../types/index.js';
 
 export interface StorageAdapter {
@@ -62,6 +63,11 @@ export interface StorageAdapter {
   saveGroup(group: WhatsAppGroupInfo, tenantId?: string): Promise<void>;
   getGroups(tenantId?: string): Promise<WhatsAppGroupInfo[]>;
   setGroupBotEnabled(groupId: string, enabled: boolean, tenantId?: string): Promise<void>;
+
+  // Owner Facts & Curiosities (Fatos Pessoais / Verdades Absolutas)
+  saveOwnerFact(fact: OwnerFactRule, tenantId?: string): Promise<void>;
+  getOwnerFacts(tenantId?: string): Promise<OwnerFactRule[]>;
+  deleteOwnerFact(id: string, tenantId?: string): Promise<boolean>;
 
   // Settings & Limits
   getSetting(key: string, tenantId?: string): Promise<string | null>;
