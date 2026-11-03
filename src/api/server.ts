@@ -215,6 +215,33 @@ export function createServer(dependencies: {
     return { success };
   });
 
+  // 4.2 Progressive Group Management
+  app.get('/api/groups', async (request) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    return dependencies.storage.getGroups(tenantId);
+  });
+
+  app.post('/api/groups/:id/toggle', async (request, reply) => {
+    const container = await getTenantContainer(request);
+    const tenantId = container?.tenant.id;
+    const { id } = request.params as { id: string };
+    const { enabled } = request.body as { enabled: boolean };
+    await dependencies.storage.setGroupBotEnabled(id, Boolean(enabled), tenantId);
+    return { success: true, id, enabled: Boolean(enabled) };
+  });
+
+  app.post('/api/groups/sync', async (request) => {
+    const container = await getTenantContainer(request);
+    const gw = container ? container.gateway : dependencies.gateway;
+    if (gw && typeof gw.syncParticipatingGroups === 'function') {
+      await gw.syncParticipatingGroups();
+    }
+    const tenantId = container?.tenant.id;
+    const list = await dependencies.storage.getGroups(tenantId);
+    return { success: true, groups: list };
+  });
+
   app.post('/api/approvals/:id/approve', async (request, reply) => {
     const container = await getTenantContainer(request);
     const mgr = container ? container.approvalManager : dependencies.approvalManager;
@@ -529,6 +556,35 @@ export function createServer(dependencies: {
     </div>
   </div>
 
+  <!-- Gestão Progressiva de Grupos -->
+  <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div>
+        <h3 style="font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+          <span>👥</span> Grupos do WhatsApp (Controle Progressivo de Interação)
+        </h3>
+        <p style="color: var(--muted); font-size: 12px; margin-top: 4px;">Por padrão seguro, o bot fica silenciado em todos os grupos. Ative apenas nos grupos específicos onde você deseja que ele interaja.</p>
+      </div>
+      <button style="border-color: #38BDF8; color: #38BDF8; font-size: 11px; padding: 6px 12px;" onclick="syncGroups()">🔄 Sincronizar Grupos do WhatsApp</button>
+    </div>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Nome do Grupo</th>
+            <th>ID / JID</th>
+            <th>Última Atividade</th>
+            <th>Última Mensagem Detectada</th>
+            <th>Permissão do Bot</th>
+          </tr>
+        </thead>
+        <tbody id="groups-body">
+          <tr><td colspan="5" class="empty">Nenhum grupo sincronizado ainda. Clique em Sincronizar Grupos.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="section-title">Auditoria em Tempo Real (Decisões Determinísticas)</div>
   <div class="table-container">
     <table id="audit-table">
@@ -790,6 +846,38 @@ export function createServer(dependencies: {
           }).join('');
         }
 
+        // Load Groups List (Progressive Control)
+        const grpRes = await fetch('/api/groups', { headers: getAuthHeaders() });
+        const groupsList = await grpRes.json();
+        const grpBody = document.getElementById('groups-body');
+        if (!groupsList || groupsList.length === 0) {
+          grpBody.innerHTML = '<tr><td colspan="5" class="empty">Nenhum grupo ativo ou sincronizado ainda. Clique no botão acima para sincronizar.</td></tr>';
+        } else {
+          grpBody.innerHTML = groupsList.map(g => {
+            const isEnabled = Boolean(g.botEnabled);
+            const btnClass = isEnabled ? 'btn-danger' : '';
+            const btnText = isEnabled ? 'Silenciar Agente' : 'Permitir Interação';
+            const statusLabel = isEnabled
+              ? '<span style="color:#22C55E; font-weight:bold;">● PERMITIDO (Ativo)</span>'
+              : '<span style="color:var(--muted);">○ SILENCIADO (Desativado)</span>';
+
+            return \`
+              <tr>
+                <td><strong>\${g.name}</strong></td>
+                <td><small style="color:var(--muted);">\${g.id}</small></td>
+                <td>\${new Date(g.lastActivityTimestamp).toLocaleTimeString()}</td>
+                <td style="max-width: 250px; font-size: 12px; color: var(--text);">\${g.lastMessage || '-'}</td>
+                <td>
+                  <div style="display:flex; align-items:center; gap:10px;">
+                    \${statusLabel}
+                    <button class="\${btnClass}" style="padding: 4px 8px; font-size: 11px;" onclick="toggleGroupBot('\${g.id}', \${!isEnabled})">\${btnText}</button>
+                  </div>
+                </td>
+              </tr>
+            \`;
+          }).join('');
+        }
+
         // Load Audit Logs
         const auditRes = await fetch('/api/audit', { headers: getAuthHeaders() });
         const logs = await auditRes.json();
@@ -855,6 +943,27 @@ export function createServer(dependencies: {
     async function deleteKeyword(id) {
       await fetch(\`/api/heuristics/keywords/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
       loadData();
+    }
+
+    async function toggleGroupBot(id, enabled) {
+      await fetch(\`/api/groups/\${id}/toggle\`, {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ enabled })
+      });
+      loadData();
+    }
+
+    async function syncGroups() {
+      const btn = event.target;
+      const originalText = btn.textContent;
+      btn.textContent = 'Sincronizando...';
+      try {
+        await fetch('/api/groups/sync', { method: 'POST', headers: getAuthHeaders(true), body: '{}' });
+      } finally {
+        btn.textContent = originalText;
+        loadData();
+      }
     }
 
     async function dismissImportant(id) {

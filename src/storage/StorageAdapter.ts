@@ -7,6 +7,7 @@ import {
   HeuristicKeywordRule,
   TenantUser,
   ImportantConversationSummary,
+  WhatsAppGroupInfo,
 } from '../types/index.js';
 
 export interface StorageAdapter {
@@ -56,6 +57,11 @@ export interface StorageAdapter {
   saveImportantConversation(summary: ImportantConversationSummary, tenantId?: string): Promise<void>;
   getImportantConversations(tenantId?: string): Promise<ImportantConversationSummary[]>;
   deleteImportantConversation(id: string, tenantId?: string): Promise<boolean>;
+
+  // Group Management (Progressive Enablement)
+  saveGroup(group: WhatsAppGroupInfo, tenantId?: string): Promise<void>;
+  getGroups(tenantId?: string): Promise<WhatsAppGroupInfo[]>;
+  setGroupBotEnabled(groupId: string, enabled: boolean, tenantId?: string): Promise<void>;
 
   // Settings & Limits
   getSetting(key: string, tenantId?: string): Promise<string | null>;

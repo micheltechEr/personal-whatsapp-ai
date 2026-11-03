@@ -77,14 +77,15 @@ export function extractMessageContent(message: proto.IMessage | null | undefined
   return { content: '', type: 'other' };
 }
 
-export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): NormalizedMessage | null {
+export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo, allowGroups: boolean = false): NormalizedMessage | null {
   const key = rawMsg.key;
   if (!key || !key.remoteJid) return null;
 
   const remoteJid = key.remoteJid;
+  const isGroup = isJidGroup(remoteJid);
 
-  // STRICT REQUIREMENT: Exclude all group chats immediately
-  if (isJidGroup(remoteJid)) {
+  // STRICT REQUIREMENT: Exclude all group chats unless expressly enabled
+  if (isGroup && !allowGroups) {
     return null;
   }
 
@@ -155,7 +156,7 @@ export function normalizeBaileysMessage(rawMsg: proto.IWebMessageInfo): Normaliz
     content,
     timestamp,
     fromMe: Boolean(key.fromMe),
-    isGroup: false,
+    isGroup,
     type,
     mimetype,
     quoted,

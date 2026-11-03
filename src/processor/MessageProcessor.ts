@@ -47,9 +47,13 @@ export class MessageProcessor extends EventEmitter {
   }
 
   public async onIncomingMessage(message: NormalizedMessage): Promise<void> {
-    // 1. Strictly drop groups (Safety boundary)
+    // 1. Descarte estrito de grupos se o bot não estiver expressamente autorizado no grupo
     if (message.isGroup) {
-      return;
+      const groups = await this.storage.getGroups();
+      const groupInfo = groups.find((g) => g.id === message.remoteJid || g.id === message.contactId);
+      if (!groupInfo || !groupInfo.botEnabled) {
+        return;
+      }
     }
 
     // 2. Persist message immediately

@@ -12,6 +12,7 @@ import pino from 'pino';
 import qrcodeTerminal from 'qrcode';
 import { normalizeBaileysMessage, isJidGroup } from './MessageNormalizer.js';
 import { NormalizedMessage } from '../types/index.js';
+import { StorageAdapter } from '../storage/StorageAdapter.js';
 
 export interface GatewayEvents {
   qr: (qr: string) => void;
@@ -36,11 +37,43 @@ export class WhatsAppGateway extends EventEmitter {
   private lidMapping: Map<string, string> = new Map(); // contactId -> remoteJid
   private logger = pino({ level: 'silent' });
   private audioTranscriber: GroqAudioTranscriber;
+  private storage?: StorageAdapter;
 
-  constructor(authDir?: string, audioTranscriber?: GroqAudioTranscriber) {
+  constructor(authDir?: string, audioTranscriber?: GroqAudioTranscriber, storage?: StorageAdapter) {
     super();
     this.authDir = authDir || path.resolve(process.cwd(), '.baileys_auth');
     this.audioTranscriber = audioTranscriber || new GroqAudioTranscriber();
+    this.storage = storage;
+  }
+
+  public setStorage(storage: StorageAdapter): void {
+    this.storage = storage;
+  }
+
+  public async syncParticipatingGroups(): Promise<void> {
+    if (!this.socket || !this.storage) return;
+    try {
+      if (typeof this.socket.groupFetchAllParticipating === 'function') {
+        const groupsMap = await this.socket.groupFetchAllParticipating();
+        const existingGroups = await this.storage.getGroups();
+        const existingMap = new Map(existingGroups.map((g) => [g.id, g]));
+
+        for (const [jid, groupData] of Object.entries(groupsMap)) {
+          const prev = existingMap.get(jid);
+          await this.storage.saveGroup({
+            id: jid,
+            name: (groupData as any).subject || prev?.name || 'Grupo do WhatsApp',
+            participantCount: (groupData as any).participants?.length || undefined,
+            lastMessage: prev?.lastMessage || 'Nenhuma mensagem recente registrada',
+            lastActivityTimestamp: prev?.lastActivityTimestamp || Date.now(),
+            botEnabled: prev ? prev.botEnabled : false,
+          });
+        }
+        console.log(`[WhatsAppGateway] Sincronizados ${Object.keys(groupsMap).length} grupos participantes.`);
+      }
+    } catch (e: any) {
+      console.warn('[WhatsAppGateway] Não foi possível listar grupos participantes:', e.message);
+    }
   }
 
   public async getQrDataUrl(): Promise<string | null> {
@@ -128,6 +161,11 @@ export class WhatsAppGateway extends EventEmitter {
           this.reconnectAttempts = 0;
           this.isConnecting = false;
           this.emit('ready');
+
+          // Sincroniza lista de grupos participantes no banco de dados para controle no Dashboard
+          this.syncParticipatingGroups().catch((err) => {
+            console.warn('[WhatsAppGateway] Aviso ao sincronizar grupos:', err.message);
+          });
         }
       });
 
@@ -142,12 +180,48 @@ export class WhatsAppGateway extends EventEmitter {
 
         for (const rawMsg of messages) {
           const jid = rawMsg.key?.remoteJid || '';
-          // Strictly drop groups right away
+
+          // Rastreamento progressivo de grupos
           if (isJidGroup(jid)) {
-            continue;
+            if (this.storage && rawMsg.key?.remoteJid) {
+              const textContent =
+                rawMsg.message?.conversation ||
+                rawMsg.message?.extendedTextMessage?.text ||
+                rawMsg.message?.imageMessage?.caption ||
+                '[Mídia/Mensagem]';
+
+              // Tenta descobrir o nome do grupo via socket
+              let groupName = 'Grupo do WhatsApp';
+              try {
+                if (this.socket && typeof this.socket.groupMetadata === 'function') {
+                  const meta = await this.socket.groupMetadata(jid).catch(() => null);
+                  if (meta && meta.subject) {
+                    groupName = meta.subject;
+                  }
+                }
+              } catch {}
+
+              const existingGroups = await this.storage.getGroups();
+              const existing = existingGroups.find((g) => g.id === jid);
+
+              await this.storage.saveGroup({
+                id: jid,
+                name: existing?.name && existing.name !== 'Grupo do WhatsApp' ? existing.name : groupName,
+                lastMessage: `${rawMsg.pushName || 'Membro'}: "${textContent.slice(0, 60)}"`,
+                lastActivityTimestamp: typeof rawMsg.messageTimestamp === 'number' ? rawMsg.messageTimestamp * 1000 : Date.now(),
+                botEnabled: existing ? existing.botEnabled : false, // Desativado por padrão (progressivo e seguro)
+              });
+
+              // Se o bot estiver desativado para este grupo, descarta o processamento de resposta
+              if (!existing?.botEnabled) {
+                continue;
+              }
+            } else {
+              continue;
+            }
           }
 
-          const normalized = normalizeBaileysMessage(rawMsg);
+          const normalized = normalizeBaileysMessage(rawMsg, true);
           if (normalized) {
             // REGRA DE SEGURANÇA 2: Descarta mensagens com mais de 2 minutos de atraso (mensagens velhas descarregadas na reconexão)
             if (now - normalized.timestamp > 2 * 60 * 1000) {

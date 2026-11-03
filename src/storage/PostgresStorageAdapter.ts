@@ -454,4 +454,12 @@ export class PostgresStorageAdapter implements StorageAdapter {
   async deleteImportantConversation(id: string, tenantId?: string): Promise<boolean> {
     return true;
   }
+
+  async saveGroup(group: any, tenantId?: string): Promise<void> {}
+
+  async getGroups(tenantId?: string): Promise<any[]> {
+    return [];
+  }
+
+  async setGroupBotEnabled(groupId: string, enabled: boolean, tenantId?: string): Promise<void> {}
 }

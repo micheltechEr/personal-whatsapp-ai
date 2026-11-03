@@ -10,6 +10,7 @@ import {
   HeuristicKeywordRule,
   TenantUser,
   ImportantConversationSummary,
+  WhatsAppGroupInfo,
 } from '../types/index.js';
 
 export class MemoryFileStorageAdapter implements StorageAdapter {
@@ -24,6 +25,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
   private tenants: Map<string, TenantUser> = new Map();
   private settings: Map<string, string> = new Map();
   private importantConversations: Map<string, ImportantConversationSummary> = new Map();
+  private groups: Map<string, WhatsAppGroupInfo> = new Map();
   private writeLock: Promise<void> = Promise.resolve();
   private initialized = false;
 
@@ -80,6 +82,11 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       if (parsed.importantConversations) {
         for (const imp of parsed.importantConversations) {
           this.importantConversations.set(imp.id, imp);
+        }
+      }
+      if (parsed.groups) {
+        for (const g of parsed.groups) {
+          this.groups.set(g.id, g);
         }
       }
 
@@ -150,6 +157,7 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       tenants: Array.from(this.tenants.values()),
       settings: Object.fromEntries(this.settings.entries()),
       importantConversations: Array.from(this.importantConversations.values()),
+      groups: Array.from(this.groups.values()),
     };
 
     try {
@@ -407,5 +415,35 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       await this.persistAll();
     }
     return deleted;
+  }
+
+  async saveGroup(group: WhatsAppGroupInfo, tenantId?: string): Promise<void> {
+    const tid = tenantId || group.tenantId;
+    this.groups.set(group.id, { ...group, tenantId: tid });
+    await this.persistAll();
+  }
+
+  async getGroups(tenantId?: string): Promise<WhatsAppGroupInfo[]> {
+    const primaryIds = Array.from(this.tenants.values())
+      .filter((t) => t.username === 'admin' || t.username === 'omigueldev')
+      .map((t) => t.id);
+    const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
+
+    const all = Array.from(this.groups.values()).filter((g) => {
+      if (isPrimaryQuery) {
+        return !g.tenantId || primaryIds.includes(g.tenantId) || g.tenantId === tenantId;
+      }
+      return g.tenantId === tenantId;
+    });
+
+    return all.sort((a, b) => b.lastActivityTimestamp - a.lastActivityTimestamp);
+  }
+
+  async setGroupBotEnabled(groupId: string, enabled: boolean, tenantId?: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (group) {
+      group.botEnabled = enabled;
+      await this.persistAll();
+    }
   }
 }

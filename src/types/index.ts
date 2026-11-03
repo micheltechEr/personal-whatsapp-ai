@@ -149,6 +149,16 @@ export interface AuditLogEntry {
   requiresHuman: boolean;
 }
 
+export interface WhatsAppGroupInfo {
+  id: string; // group JID (ex: 120363xxx@g.us)
+  name: string;
+  tenantId?: string;
+  participantCount?: number;
+  lastMessage?: string;
+  lastActivityTimestamp: number;
+  botEnabled: boolean; // Se o agente tem permissão para interagir neste grupo
+}
+
 export interface ImportantConversationSummary {
   id: string; // usually contactId or threadId
   tenantId?: string;
