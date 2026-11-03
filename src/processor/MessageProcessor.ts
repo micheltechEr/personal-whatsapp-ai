@@ -56,37 +56,54 @@ export class MessageProcessor extends EventEmitter {
       }
 
       // REGRA DE OURO PARA GRUPOS: O agente SÓ PODE interagir se:
-      // A) O proprietário foi mencionado via tag (@5575... / @numero)
+      // A) O proprietário foi mencionado via tag (@5575... / @numero / LID do proprietário) E há texto/pergunta
       // B) O nome do proprietário foi explicitamente mencionado no texto (ex: "angelo", "miguel")
       // C) Uma mensagem do próprio proprietário foi citada/marcada (quoted participant)
       const ownerName = this.personalityEngine.getOwnerName().toLowerCase();
-      const ownerFirstWord = ownerName.split(/\s+/)[0]; // ex: "ângelo" ou "miguel"
       const textLower = message.content.toLowerCase();
 
-      // Checa menção de nome no texto
-      const mentionedNameInText =
-        Boolean(ownerFirstWord && textLower.includes(ownerFirstWord)) ||
-        textLower.includes('angelo') ||
-        textLower.includes('miguel');
+      // Identificadores conhecidos do proprietário
+      const ownerIdentifiers = ['557588428289', '196404576260215', 'angelo', 'miguel', 'migué'];
 
-      // Checa se a mensagem citada é do proprietário
+      // 1. Checa se o texto cita o nome do dono
+      const mentionedNameInText =
+        ownerIdentifiers.some((id) => textLower.includes(id)) ||
+        /\b(angelo|ângelo|miguel|migué)\b/i.test(textLower);
+
+      // 2. Checa se a mensagem citada foi enviada pelo proprietário
       let quotedOwnerMessage = false;
-      if (message.quoted?.stanzaId) {
+      if (message.quoted?.participant) {
+        const quotedPart = message.quoted.participant;
+        if (ownerIdentifiers.some((id) => quotedPart.includes(id))) {
+          quotedOwnerMessage = true;
+        }
+      }
+      if (!quotedOwnerMessage && message.quoted?.stanzaId) {
         const quotedMsg = await this.storage.getMessage(message.quoted.stanzaId);
         if (quotedMsg && quotedMsg.fromMe) {
           quotedOwnerMessage = true;
         }
       }
 
-      // Checa se o proprietário foi marcado com @ (mentionedJids)
-      const hasDirectMention =
-        Boolean(message.mentionedJids && message.mentionedJids.length > 0);
+      // 3. Checa se o proprietário foi marcado com @ (mentionedJids contém o JID ou LID do proprietário)
+      let hasDirectMentionToMe = false;
+      if (message.mentionedJids && message.mentionedJids.length > 0) {
+        hasDirectMentionToMe = message.mentionedJids.some((jid) =>
+          ownerIdentifiers.some((id) => jid.includes(id))
+        );
+      }
 
-      const isDirectedToOwner = mentionedNameInText || quotedOwnerMessage || hasDirectMention;
+      const isDirectedToOwner = mentionedNameInText || quotedOwnerMessage || hasDirectMentionToMe;
 
       if (!isDirectedToOwner) {
         // Conversa paralela entre outros membros do grupo -> SILÊNCIO TOTAL
         return;
+      }
+
+      // Se foi marcado apenas com uma tag seca (@número) sem nenhuma pergunta ou texto explicativo
+      if (/^@\d+$/i.test(message.content.trim()) && hasDirectMentionToMe) {
+        // Quando marcam apenas com @Ângelo sem falar nada: resposta rápida e natural de chamado
+        console.log(`[MessageProcessor] Tag direta recebida no grupo ${message.remoteJid}: respondendo ao chamado.`);
       }
     }
 

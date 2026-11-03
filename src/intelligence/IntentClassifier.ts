@@ -61,7 +61,33 @@ export class IntentClassifier {
       text.trim() === '[Figurinha]' ||
       text === '[Imagem]' ||
       text === '[Áudio]' ||
-      text === '[Vídeo]';
+      text === '[Vídeo]' ||
+      text === '[GIF]';
+
+    // Se a mensagem for APENAS uma menção seca (@número / @lid) sem nenhum texto ou pergunta junto
+    const isBareMentionOnly = /^@\d+$/i.test(text.trim());
+
+    if (isBareMentionOnly) {
+      // Se marcou o proprietário diretamente, trata como chamado para resposta ("Opa, fala aí")
+      if (hasQuotedReference) {
+        return {
+          intent: 'GREETING',
+          isQuestion: true,
+          isUrgent: false,
+          requiresResponse: true,
+          operationalAction: 'RESPONDER',
+          confidence: 96,
+        };
+      }
+      return {
+        intent: 'MEDIA_SHARE_NO_TEXT',
+        isQuestion: false,
+        isUrgent: false,
+        requiresResponse: false,
+        operationalAction: 'IGNORAR',
+        confidence: 96,
+      };
+    }
 
     if (isBareMedia) {
       return {

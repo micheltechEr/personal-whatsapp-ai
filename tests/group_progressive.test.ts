@@ -141,10 +141,11 @@ describe('Progressive Group Management (Testing Groups Safely)', () => {
       fromMe: false,
       isGroup: true,
       type: 'text',
+      mentionedJids: ['557588428289@s.whatsapp.net'],
     };
 
     await processor.onIncomingMessage(msg);
-    await new Promise((r) => setTimeout(r, 250));
+    await new Promise((r) => setTimeout(r, 350));
 
     const audits = await storage.getAuditLogs();
     const grpAudit = audits.find((a) => a.contactId === groupJid);
