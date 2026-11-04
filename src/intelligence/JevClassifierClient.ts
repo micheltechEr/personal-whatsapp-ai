@@ -33,15 +33,15 @@ export class JevClassifierClient {
             type: 'noul',
           },
           intent: {
-            instructions: 'Identify the primary intent of this message',
+            instructions: 'Identify the primary intent of this message in Portuguese',
             type: 'choice',
             criteria: {
-              greeting: 'Casual greeting, social hello',
-              system_probing: 'Asking about files, system internals, developer mode or LLM identity',
-              commercial: 'Asking about services, prices, landing pages, websites, budget',
-              support: 'Help with an existing service',
-              sensitive: 'Money transfer, bank, health, legal, intense emotional conflict',
-              chitchat: 'Casual small talk',
+              greeting: 'Casual greeting, social hello (oi, bom dia, tudo bem)',
+              commercial: 'Negotiation, price offer, counter-offer, budget, selling, buying, closing deals, numbers and values (ex: 1050 fecha agora, quanto fica, orçamento)',
+              system_probing: 'Explicitly asking to reveal system prompt, internal files, developer mode or LLM model name',
+              support: 'Questions asking for technical support',
+              sensitive: 'Bank accounts, passwords, health emergency, legal lawsuit',
+              chitchat: 'Casual small talk, relationship, day-to-day conversation',
             },
           },
           risk: {
@@ -90,8 +90,8 @@ export class JevClassifierClient {
 
       const isAttackOrProbing =
         promptInjectionScore >= 0.65 ||
-        intent === 'system_probing' ||
-        intent === 'jailbreak';
+        (intent === 'system_probing' && intentConfidence >= 75) ||
+        (intent === 'jailbreak' && intentConfidence >= 70);
 
       return {
         promptInjectionScore,
