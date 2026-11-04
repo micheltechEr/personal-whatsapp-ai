@@ -225,8 +225,13 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
       .filter((m) => {
         const contactMatch = !contactId || m.contactId === contactId;
         if (!contactMatch) return false;
+        if (tenantId && !isPrimaryQuery) {
+          // Tenants secundários (ex: Amanda) só veem estritamente as mensagens do seu tenant
+          return m.tenantId === tenantId;
+        }
         if (isPrimaryQuery) {
-          return !m.tenantId || primaryIds.includes(m.tenantId) || m.tenantId === tenantId;
+          // Conta admin vê as mensagens legadas (sem tenant) ou vinculadas a si própria, NUNCA de outros tenants
+          return !m.tenantId || primaryIds.includes(m.tenantId);
         }
         return m.tenantId === tenantId;
       })
@@ -323,7 +328,8 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
 
   // Audit Logs
   async saveAuditLog(entry: AuditLogEntry, tenantId?: string): Promise<void> {
-    if (tenantId) entry.tenantId = tenantId;
+    const tid = tenantId || entry.tenantId;
+    if (tid) entry.tenantId = tid;
     this.auditLogs.push(entry);
     await this.persistAll();
   }
@@ -335,8 +341,11 @@ export class MemoryFileStorageAdapter implements StorageAdapter {
     const isPrimaryQuery = !tenantId || (tenantId && primaryIds.includes(tenantId));
 
     const filtered = this.auditLogs.filter((a) => {
+      if (tenantId && !isPrimaryQuery) {
+        return a.tenantId === tenantId;
+      }
       if (isPrimaryQuery) {
-        return !a.tenantId || primaryIds.includes(a.tenantId) || a.tenantId === tenantId;
+        return !a.tenantId || primaryIds.includes(a.tenantId);
       }
       return a.tenantId === tenantId;
     });

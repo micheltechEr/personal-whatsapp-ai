@@ -113,7 +113,7 @@ export class TenantManager {
     const tenantAuthDir = tenant.username === 'admin'
       ? this.baseAuthDir!
       : path.join(this.baseAuthDir!, `tenant_${tenant.id}`);
-    const gateway = new WhatsAppGateway(tenantAuthDir);
+    const gateway = new WhatsAppGateway(tenantAuthDir, undefined, this.storage, tenant.id);
 
     // 2. Motores de Inteligência e RAG isolados por tenant com o nome real do usuário
     const personalityEngine = new PersonalityEngine(tenant.name || tenant.username);

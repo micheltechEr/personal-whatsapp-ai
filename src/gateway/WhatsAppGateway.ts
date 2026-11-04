@@ -38,16 +38,27 @@ export class WhatsAppGateway extends EventEmitter {
   private logger = pino({ level: 'silent' });
   private audioTranscriber: GroqAudioTranscriber;
   private storage?: StorageAdapter;
+  private tenantId?: string;
 
-  constructor(authDir?: string, audioTranscriber?: GroqAudioTranscriber, storage?: StorageAdapter) {
+  constructor(
+    authDir?: string,
+    audioTranscriber?: GroqAudioTranscriber,
+    storage?: StorageAdapter,
+    tenantId?: string
+  ) {
     super();
     this.authDir = authDir || path.resolve(process.cwd(), '.baileys_auth');
     this.audioTranscriber = audioTranscriber || new GroqAudioTranscriber();
     this.storage = storage;
+    this.tenantId = tenantId;
   }
 
   public setStorage(storage: StorageAdapter): void {
     this.storage = storage;
+  }
+
+  public setTenantId(tenantId: string): void {
+    this.tenantId = tenantId;
   }
 
   public async syncParticipatingGroups(): Promise<void> {
@@ -223,6 +234,7 @@ export class WhatsAppGateway extends EventEmitter {
 
           const normalized = normalizeBaileysMessage(rawMsg, true);
           if (normalized) {
+            normalized.tenantId = this.tenantId;
             // REGRA DE SEGURANÇA 2: Descarta mensagens com mais de 2 minutos de atraso (mensagens velhas descarregadas na reconexão)
             if (now - normalized.timestamp > 2 * 60 * 1000) {
               console.log(`[WhatsAppGateway] Mensagem antiga de ${normalized.contactId} descartada (atraso: ${Math.round((now - normalized.timestamp) / 1000)}s)`);

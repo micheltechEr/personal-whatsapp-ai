@@ -44,8 +44,9 @@ async function main() {
 
   // Inicializa o container do admin
   let adminRuntime = defaultAdmin ? await tenantManager.getOrCreateRuntime(defaultAdmin) : null;
-  const gateway = adminRuntime ? adminRuntime.gateway : new WhatsAppGateway();
+  const gateway = adminRuntime ? adminRuntime.gateway : new WhatsAppGateway(undefined, undefined, storage, defaultAdmin?.id);
   gateway.setStorage(storage);
+  if (defaultAdmin) gateway.setTenantId(defaultAdmin.id);
   const autonomyController = adminRuntime
     ? adminRuntime.autonomyController
     : new AutonomyController({ globalMode: 'AUTONOMOUS_CONTROLLED', maxDailyAutoRepliesDefault: globalMaxDaily });

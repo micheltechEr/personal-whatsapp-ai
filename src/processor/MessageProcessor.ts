@@ -212,6 +212,7 @@ export class MessageProcessor extends EventEmitter {
       }
     } else if (evaluation.allowedAction === 'REVIEW_REQUIRED' && proposal.suggested_response) {
       await this.approvalManager.addToQueue({
+        tenantId: message.tenantId,
         messageId: message.id,
         contactId: message.contactId,
         contactName: message.senderName,
@@ -229,6 +230,7 @@ export class MessageProcessor extends EventEmitter {
     if (proposal.operational_action && proposal.operational_action !== 'IGNORAR') {
       const task: PendingTask = {
         id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        tenantId: message.tenantId,
         contactId: message.contactId,
         contactName: message.senderName,
         contactJid: message.contactJid || message.remoteJid,
@@ -239,12 +241,13 @@ export class MessageProcessor extends EventEmitter {
         sourceMessageId: message.id,
         action: proposal.operational_action,
       };
-      await this.storage.savePendingTask(task);
+      await this.storage.savePendingTask(task, message.tenantId);
     }
 
     // Record Immutable Audit Log
     const auditEntry: AuditLogEntry = {
       id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      tenantId: message.tenantId,
       timestamp: Date.now(),
       contactId: message.contactId,
       contactName: message.senderName,
@@ -263,7 +266,7 @@ export class MessageProcessor extends EventEmitter {
       requiresHuman: evaluation.allowedAction !== 'AUTO_REPLY' && evaluation.allowedAction !== 'IGNORE',
     };
 
-    await this.storage.saveAuditLog(auditEntry);
+    await this.storage.saveAuditLog(auditEntry, message.tenantId);
 
     // Se o assunto for relevante / importante (propostas, reuniões, orçamentos, contratos, prazos),
     // classifica e atualiza o resumo executivo, decisão tomada e pendências
