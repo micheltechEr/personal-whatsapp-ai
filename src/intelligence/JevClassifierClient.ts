@@ -89,9 +89,9 @@ export class JevClassifierClient {
         : 1.0;
 
       const isAttackOrProbing =
-        promptInjectionScore >= 0.55 ||
+        promptInjectionScore >= 0.65 ||
         intent === 'system_probing' ||
-        riskScore >= 2.3;
+        intent === 'jailbreak';
 
       return {
         promptInjectionScore,

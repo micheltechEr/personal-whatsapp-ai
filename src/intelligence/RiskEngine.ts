@@ -83,8 +83,8 @@ export class RiskEngine {
           };
         }
 
-        // Se o Jev indicar risco alto (>= 2.0)
-        if (jevResult.riskScore >= 2.0 && baseAnalysis.riskLevel < 2) {
+        // Se o Jev indicar risco moderado/alto (>= 2.8) E NÃO for conversa casual/chitchat
+        if (jevResult.riskScore >= 2.8 && jevResult.intent !== 'chitchat' && baseAnalysis.riskLevel < 2) {
           return {
             ...baseAnalysis,
             riskLevel: 2,
