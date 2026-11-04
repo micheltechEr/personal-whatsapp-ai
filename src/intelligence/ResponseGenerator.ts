@@ -44,7 +44,8 @@ export class ResponseGenerator {
     contactId?: string,
     contactName?: string,
     gender?: string,
-    explicitReferencedMessage?: ConversationContext['explicitReferencedMessage']
+    explicitReferencedMessage?: ConversationContext['explicitReferencedMessage'],
+    tenantId?: string
   ): Promise<string | null> {
     const ownerName = this.personalityEngine.getOwnerName();
     let ragFewShotSection = '';
@@ -90,13 +91,13 @@ export class ResponseGenerator {
       explicitReferencePrompt = `\n- REFERÊNCIA EXPLÍCITA DE CONVERSA CITADA (contextInfo): O contato marcou/citou uma mensagem anterior específica no WhatsApp:\n  Mensagem citada: "${explicitReferencedMessage.original.content}"\n  Vizinhança da conversa na época: ${explicitReferencedMessage.surroundingContext}\n  O contato enviou agora: "${messageText}".\n  Avalie se o contato está cobrando uma resposta, retomando um assunto pendente ou confirmando algo daquela época, e responda com total precisão contextual.`;
     }
 
-    // Fatos Pessoais e Curiosidades Absolutas (Injetadas da aba de Curiosidades do Cockpit)
+    // Fatos Pessoais e Curiosidades Absolutas (Injetadas da aba de Curiosidades do Cockpit, filtradas estritamente pelo tenantId)
     let ownerFactsPrompt = '';
     if (this.storage) {
-      const facts = await this.storage.getOwnerFacts();
+      const facts = await this.storage.getOwnerFacts(tenantId);
       if (facts.length > 0) {
         const factList = facts.map((f) => `- [${f.topic}]: ${f.fact}`).join('\n');
-        ownerFactsPrompt = `\n\nFATOS PESSOAIS ABSOLUTOS E VERDADES SOBRE ${ownerName.toUpperCase()} (NUNCA CONTRADIGA ESSES FATOS):\n${factList}\nSE PERGUNTAREM OU TOCAREM EM ASSUNTOS COMO RELACIONAMENTO, TRABALHO OU VIDA PESSOAL, SIGA RIGOROSAMENTE ESSES FATOS ACIMA. NUNCA INVENTE QUE ESTÁ SOLTEIRO OU QUE NÃO NAMORA SE ESTIVER CADASTRADO QUE NAMORA.`;
+        ownerFactsPrompt = `\n\nFATOS PESSOAIS ABSOLUTOS E PERSONALIDADE DE ${ownerName.toUpperCase()} (INSTRUÇÕES E DIRETRIZES FUNDAMENTAIS):\n${factList}\nATENÇÃO: Incorpore ativamente as habilidades, perfil, trabalho e fatos acima em todas as suas respostas. Se houver desafio, negociação ou pergunta sobre o que você faz ou suas capacidades, mostre essa postura e conhecimento com maestria. Nunca contradiga os fatos acima.`;
       }
     }
 
@@ -108,7 +109,8 @@ DIRETRIZES DE NATURALIDADE E PERSONALIDADE POR CONVERSA:
 - VOCATIVOS CONTROLADOS:${vocativeGuidance}
 - PROIBIÇÃO DE RISADA FORÇADA: NUNCA coloque "kkk", "kkkk", "llkkk" ou risadas automáticas no fim de mensagens afirmativas (como "Beleza", "Show", "Valeu", "Tranquilo"). SÓ use risada se o interlocutor tiver feito uma piada genuína, enviado meme ou rido antes. Não force simpatia artificial.
 - COERÊNCIA CONTEXTUAL: Preste muita atenção em quem está falando e ao sujeito da ação. Se a pessoa diz "Demora pra achar figurinha", ela está justificando a si mesma, não você. Não peça desculpas nem assuma ações alheias.${explicitReferencePrompt}${ownerFactsPrompt}
-- CONCISÃO NATURAL: Responda exatamente como uma pessoa real responde no WhatsApp: 1 frase curta, objetiva, sem enrolação.
+- INCORPORE A PERSONA: Quando testarem você ou pedirem uma ação (ex: venda, opinião, negociação), demonstre a sua personalidade e suas competências cadastradas com confiança e sagacidade.
+- CONCISÃO NATURAL: Responda exatamente como uma pessoa real responde no WhatsApp: 1 ou 2 frases curtas, impactantes, sem enrolação.
 ${styleGuidance}
 - Contexto recente da conversa: ${contextSummary || 'Início de conversa'}${ragFewShotSection}
 
@@ -295,7 +297,8 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
           message.contactId,
           context.contactName || context.contactMemory.name,
           context.contactMemory.gender,
-          context.explicitReferencedMessage
+          context.explicitReferencedMessage,
+          message.tenantId
         );
         if (!generated || generated.trim().length === 0) {
           decision = 'REVIEW_REQUIRED';
@@ -341,7 +344,9 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
           context.contactMemory.relationship,
           message.contactId,
           context.contactName || context.contactMemory.name,
-          context.contactMemory.gender
+          context.contactMemory.gender,
+          undefined,
+          message.tenantId
         );
         suggested = generated || stickerInfo.suggestedReaction || 'Kkkkk boa';
       } else {
@@ -373,7 +378,8 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         message.contactId,
         context.contactName || context.contactMemory.name,
         context.contactMemory.gender,
-        context.explicitReferencedMessage
+        context.explicitReferencedMessage,
+        message.tenantId
       );
 
       // Fallback para conversas ultra curtas caso o LLM demore ou não retorne

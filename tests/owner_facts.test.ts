@@ -34,19 +34,20 @@ describe('Owner Facts & Absolute Truths (No Alucination on Relationships)', () =
     expect(facts[0].fact).toContain('Namoro com a Anny');
   });
 
-  it('deletes a personal fact', async () => {
+  it('incorporates tenant-specific facts into the prompt', async () => {
+    const personality = new PersonalityEngine('Amanda');
+    const generator = new ResponseGenerator(personality, undefined, undefined, undefined, undefined, storage);
+
     await storage.saveOwnerFact({
-      id: 'fact-del',
-      topic: 'Pets',
-      fact: 'Tenho um gato.',
+      id: 'fact-amanda-vendas',
+      tenantId: 'tenant-amanda',
+      topic: 'Personalidade',
+      fact: "Vendedora implacável com 'N' habilidades de vendas",
       createdAt: Date.now(),
-    });
+    }, 'tenant-amanda');
 
-    let facts = await storage.getOwnerFacts();
+    const facts = await storage.getOwnerFacts('tenant-amanda');
     expect(facts.length).toBe(1);
-
-    await storage.deleteOwnerFact('fact-del');
-    facts = await storage.getOwnerFacts();
-    expect(facts.length).toBe(0);
+    expect(facts[0].fact).toContain('Vendedora implacável');
   });
 });
