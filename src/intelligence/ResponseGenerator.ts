@@ -150,10 +150,10 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
     }
 
     // H03: Intelligent silence
-    // Se for figurinha COM imagem base64, NÃO silencia cegamente: envia para interpretação visual antes
-    const isStickerWithImage = message.type === 'sticker' && Boolean(message.mediaBase64);
+    // Se for figurinha ou imagem COM base64, NÃO silencia cegamente: envia para interpretação visual
+    const isMediaWithVision = (message.type === 'sticker' || message.type === 'image') && Boolean(message.mediaBase64);
 
-    if (!intent.requiresResponse && !isStickerWithImage) {
+    if (!intent.requiresResponse && !isMediaWithVision) {
       return DecisionContractSchema.parse({
         message_id: message.id,
         contact_id: message.contactId,
@@ -307,6 +307,47 @@ Gere APENAS a resposta final como ${ownerName} enviaria no WhatsApp.`;
         } else {
           suggested = generated;
         }
+      }
+    } else if (message.type === 'image' && message.mediaBase64) {
+      // Vision Mode: Lê e analisa fotos, prints, telas e comprovantes
+      const imgInfo = await this.visionInterpreter.interpretImage(
+        message.mediaBase64,
+        message.mimetype || 'image/jpeg',
+        message.content !== '[Imagem]' ? message.content : '',
+        context.recentSummary
+      );
+
+      if (imgInfo) {
+        console.log(`[ResponseGenerator] Imagem interpretada via Vision: ${imgInfo.subject} - "${imgInfo.description}"`);
+        const imageContextPrompt = `O contato enviou uma imagem/foto no chat:\nDescrição visual: "${imgInfo.description}"\n${imgInfo.extractedText ? `Texto lido na imagem (OCR): "${imgInfo.extractedText}"\n` : ''}Significado para a conversa: ${imgInfo.relevantDetails}\nLegenda enviada pelo contato: "${message.content !== '[Imagem]' ? message.content : 'Sem legenda'}"`;
+
+        const generated = await this.generateWithLLM(
+          imageContextPrompt,
+          context.recentSummary,
+          context.contactMemory.relationship,
+          message.contactId,
+          context.contactName || context.contactMemory.name,
+          context.contactMemory.gender,
+          undefined,
+          message.tenantId
+        );
+        suggested = generated || 'Recebi a foto aqui, vou dar uma olhada!';
+      } else {
+        return DecisionContractSchema.parse({
+          message_id: message.id,
+          contact_id: message.contactId,
+          intent: 'MEDIA_SHARE_NO_TEXT',
+          risk_level: 0,
+          decision: 'IGNORE',
+          confidence: { intent: 90, context: 85, factual: 90, response: 90 },
+          context_summary: context.recentSummary,
+          reason: 'H03: Imagem recebida sem conteúdo processável.',
+          suggested_response: '',
+          safety_flags: [],
+          requires_human: false,
+          memory_candidates: [],
+          operational_action: 'IGNORAR',
+        });
       }
     } else if (message.type === 'sticker' && message.mediaBase64) {
       // Vision Mode: Interpreta a figurinha e responde com inteligência contextual

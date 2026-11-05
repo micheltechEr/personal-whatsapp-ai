@@ -247,6 +247,29 @@ export class WhatsAppGateway extends EventEmitter {
             }
             this.lidMapping.set(jid, jid);
 
+            // Download de Imagens (Fotos / Prints / Comprovantes) para Vision Mode
+            if (normalized.type === 'image' && rawMsg.message?.imageMessage) {
+              try {
+                console.log(`[WhatsAppGateway] Imagem/Foto recebida de ${normalized.contactId}. Baixando para Vision Mode...`);
+                const buffer = await downloadMediaMessage(
+                  rawMsg,
+                  'buffer',
+                  {},
+                  {
+                    logger: this.logger as any,
+                    reuploadRequest: this.socket!.updateMediaMessage,
+                  }
+                );
+                if (Buffer.isBuffer(buffer)) {
+                  normalized.mediaBase64 = buffer.toString('base64');
+                  normalized.mimetype = rawMsg.message.imageMessage.mimetype || 'image/jpeg';
+                  console.log(`[WhatsAppGateway] Imagem baixada com sucesso (${buffer.length} bytes, mimetype: ${normalized.mimetype})`);
+                }
+              } catch (imgErr) {
+                console.warn('[WhatsAppGateway] Falha ao baixar mídia da imagem:', imgErr);
+              }
+            }
+
             // Download da mídia da figurinha (Sticker WebP ou GIF) para interpretação com Vision Mode
             const isStickerOrGifMessage =
               (normalized.type === 'sticker' && rawMsg.message?.stickerMessage) ||
@@ -363,22 +386,76 @@ export class WhatsAppGateway extends EventEmitter {
     const cachedJid = this.lidMapping.get(contactId);
     let targetJid = cachedJid || (contactId.includes('@') ? contactId : `${contactId}@s.whatsapp.net`);
 
+    // Trata número de telefone brasileiro: se tiver 13 dígitos (55 + DDD 2 dígitos + 9 dígitos),
+    // o WhatsApp pode aceitar a versão com ou sem o 9º dígito
+    const getBrazilianVariants = (num: string): string[] => {
+      const clean = num.replace(/\D/g, '');
+      const variants: string[] = [];
+      if (clean.startsWith('55') && clean.length === 13) {
+        // Formato com 9 dígitos: 55 + DD + 9 + 8 dígitos
+        const ddd = clean.slice(2, 4);
+        const rest = clean.slice(5); // sem o 9
+        const withoutNine = `55${ddd}${rest}@s.whatsapp.net`;
+        variants.push(withoutNine);
+      } else if (clean.startsWith('55') && clean.length === 12) {
+        // Formato sem 9 dígitos: 55 + DD + 8 dígitos -> com 9
+        const ddd = clean.slice(2, 4);
+        const rest = clean.slice(4);
+        const withNine = `55${ddd}9${rest}@s.whatsapp.net`;
+        variants.push(withNine);
+      }
+      return variants;
+    };
+
     console.log(`[WhatsAppGateway] Tentando envio (com quoted: ${Boolean(quotedMessage)}) para ${targetJid}: "${text}"`);
     let result: any;
 
-    const options = quotedMessage ? { quoted: quotedMessage } : undefined;
+    // Em caso de quoted com erro 406 (not-acceptable), podemos tentar enviar sem quoted como fallback
+    let sendOptions = quotedMessage ? { quoted: quotedMessage } : undefined;
 
     try {
-      result = await this.socket.sendMessage(targetJid, { text }, options);
-    } catch (primaryErr) {
-      // Se falhou no JID principal (ex: @lid) e o contato tem formato de telefone, tenta o fallback @s.whatsapp.net
+      result = await this.socket.sendMessage(targetJid, { text }, sendOptions);
+    } catch (primaryErr: any) {
+      console.warn(`[WhatsAppGateway] Falha primária no envio para ${targetJid} (${primaryErr?.message || primaryErr}). Tentando estratégias de recuperação...`);
+
+      // 1. Se falhou com quoted (406 not-acceptable), tenta enviar sem quoted imediatamente
+      if (sendOptions) {
+        try {
+          console.log(`[WhatsAppGateway] Tentando envio sem quoted para ${targetJid}...`);
+          result = await this.socket.sendMessage(targetJid, { text }, undefined);
+          return result?.key?.id || `sent-${Date.now()}`;
+        } catch (noQuoteErr: any) {
+          console.warn(`[WhatsAppGateway] Falha sem quoted para ${targetJid}:`, noQuoteErr?.message || noQuoteErr);
+        }
+      }
+
+      // 2. Se falhou no LID, tenta fallback regular @s.whatsapp.net
       if (targetJid.includes('@lid') && /^\d+$/.test(contactId)) {
         const fallbackJid = `${contactId}@s.whatsapp.net`;
-        console.warn(`[WhatsAppGateway] Falha enviando para LID ${targetJid}, tentando fallback ${fallbackJid}...`);
-        result = await this.socket.sendMessage(fallbackJid, { text }, options);
-      } else {
-        throw primaryErr;
+        try {
+          console.warn(`[WhatsAppGateway] Tentando fallback para telefone regular ${fallbackJid}...`);
+          result = await this.socket.sendMessage(fallbackJid, { text }, undefined);
+          return result?.key?.id || `sent-${Date.now()}`;
+        } catch (lidFallbackErr: any) {
+          console.warn(`[WhatsAppGateway] Falha no fallback regular:`, lidFallbackErr?.message || lidFallbackErr);
+        }
       }
+
+      // 3. Fallback de dígito 9 brasileiro (com/sem o 9º dígito para o WhatsApp aceitar a sessão)
+      const variants = getBrazilianVariants(contactId);
+      for (const variantJid of variants) {
+        if (variantJid !== targetJid) {
+          try {
+            console.log(`[WhatsAppGateway] Tentando variante de número brasileiro ${variantJid}...`);
+            result = await this.socket.sendMessage(variantJid, { text }, undefined);
+            return result?.key?.id || `sent-${Date.now()}`;
+          } catch (varErr: any) {
+            console.warn(`[WhatsAppGateway] Falha na variante ${variantJid}:`, varErr?.message || varErr);
+          }
+        }
+      }
+
+      throw primaryErr;
     }
 
     return result?.key?.id || `sent-${Date.now()}`;

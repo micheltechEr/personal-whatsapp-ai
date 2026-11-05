@@ -26,6 +26,16 @@ describe('Vision Sticker Interpreter & Response Integration', () => {
     expect(result?.emotion).toBeDefined();
   });
 
+  it('interprets photo/document with vision mode, performing OCR and visual description', async () => {
+    const mockImageBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const result = await vision.interpretImage(mockImageBase64, 'image/png', 'Veja este comprovante');
+
+    expect(result).toBeDefined();
+    expect(result?.description).toBeDefined();
+    expect(result?.subject).toBe('documento');
+    expect(result?.extractedText).toContain('1.500,00');
+  });
+
   it('generates contextual response when an expressive sticker is received', async () => {
     const personality = new PersonalityEngine('Ângelo');
     const generator = new ResponseGenerator(personality, undefined, undefined, undefined, vision);
