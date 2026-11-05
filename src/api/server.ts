@@ -589,32 +589,42 @@ export function createServer(dependencies: {
     </div>
   </div>
 
-  <!-- Gestão Progressiva de Grupos -->
-  <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
-      <div>
-        <h3 style="font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-          <span>👥</span> Grupos do WhatsApp (Controle Progressivo de Interação)
-        </h3>
-        <p style="color: var(--muted); font-size: 12px; margin-top: 4px;">Por padrão seguro, o bot fica silenciado em todos os grupos. Ative apenas nos grupos específicos onde você deseja que ele interaja.</p>
+  <!-- Gestão Progressiva de Grupos (Aba Colapsável) -->
+  <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 24px; overflow: hidden;">
+    <div style="padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; background: rgba(255,255,255,0.02);" onclick="toggleGroupsAccordion()">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 16px;">👥</span>
+        <div>
+          <h3 style="font-size: 15px; font-weight: 600; margin: 0; display: inline;">Grupos do WhatsApp (Controle Progressivo de Interação)</h3>
+          <span style="font-size: 12px; color: var(--muted); margin-left: 8px;">(Silenciado por padrão. Ative individualmente apenas onde o bot puder responder)</span>
+        </div>
       </div>
-      <button style="border-color: #38BDF8; color: #38BDF8; font-size: 11px; padding: 6px 12px;" onclick="syncGroups()">🔄 Sincronizar Grupos do WhatsApp</button>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span id="groups-arrow" style="font-size: 12px; color: var(--accent); transition: transform 0.2s;">▼ Expandir</span>
+      </div>
     </div>
-    <div class="table-container">
-      <table>
-        <thead>
-          <tr>
-            <th>Nome do Grupo</th>
-            <th>ID / JID</th>
-            <th>Última Atividade</th>
-            <th>Última Mensagem Detectada</th>
-            <th>Permissão do Bot</th>
-          </tr>
-        </thead>
-        <tbody id="groups-body">
-          <tr><td colspan="5" class="empty">Nenhum grupo sincronizado ainda. Clique em Sincronizar Grupos.</td></tr>
-        </tbody>
-      </table>
+    
+    <div id="groups-content" style="display: none; padding: 20px; border-top: 1px solid var(--border);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <p style="color: var(--muted); font-size: 12px; margin: 0;">Mesmo ativado no grupo, o agente só responde quando você for mencionado com @, citado em mensagem ou chamado pelo nome.</p>
+        <button style="border-color: #38BDF8; color: #38BDF8; font-size: 11px; padding: 6px 12px;" onclick="syncGroups()">🔄 Sincronizar Grupos do WhatsApp</button>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Nome do Grupo</th>
+              <th>ID / JID</th>
+              <th>Última Atividade</th>
+              <th>Última Mensagem Detectada</th>
+              <th>Permissão do Bot</th>
+            </tr>
+          </thead>
+          <tbody id="groups-body">
+            <tr><td colspan="5" class="empty">Nenhum grupo sincronizado ainda. Clique em Sincronizar Grupos.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -1039,6 +1049,18 @@ export function createServer(dependencies: {
     async function deleteKeyword(id) {
       await fetch(\`/api/heuristics/keywords/\${id}\`, { method: 'DELETE', headers: getAuthHeaders() });
       loadData();
+    }
+
+    function toggleGroupsAccordion() {
+      const content = document.getElementById('groups-content');
+      const arrow = document.getElementById('groups-arrow');
+      if (content.style.display === 'none') {
+        content.style.display = 'block';
+        arrow.textContent = '▲ Recolher';
+      } else {
+        content.style.display = 'none';
+        arrow.textContent = '▼ Expandir';
+      }
     }
 
     function toggleFactsAccordion() {
