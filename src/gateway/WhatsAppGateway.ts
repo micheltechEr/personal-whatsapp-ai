@@ -413,6 +413,34 @@ export class WhatsAppGateway extends EventEmitter {
     // Em caso de quoted com erro 406 (not-acceptable), podemos tentar enviar sem quoted como fallback
     let sendOptions = quotedMessage ? { quoted: quotedMessage } : undefined;
 
+    // Simulação de comportamento humano (Anti-Bot):
+    // 1. Marca visualização (read receipts)
+    // 2. Marca presença "composing" (digitando...)
+    // 3. Aguarda um delay proporcional ao tamanho da mensagem (leitura + digitação)
+    // 4. Pausa presença e dispara a mensagem
+    if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+      try {
+        if (quotedMessage && typeof this.socket.readMessages === 'function') {
+          await this.socket.readMessages([quotedMessage.key]).catch(() => {});
+        }
+
+        if (typeof this.socket.sendPresenceUpdate === 'function') {
+          await this.socket.sendPresenceUpdate('composing', targetJid);
+        }
+
+        // Tempo de digitação: entre 1.5s e 4.5s baseado no tamanho do texto
+        const typingDelay = Math.min(Math.max(text.length * 45, 1500), 4500) + Math.floor(Math.random() * 800);
+        console.log(`[WhatsAppGateway] Simulando digitação humana (${typingDelay}ms) para ${targetJid}...`);
+        await new Promise((resolve) => setTimeout(resolve, typingDelay));
+
+        if (typeof this.socket.sendPresenceUpdate === 'function') {
+          await this.socket.sendPresenceUpdate('paused', targetJid);
+        }
+      } catch (presErr) {
+        // Presença é opcional, falhas não devem travar o envio
+      }
+    }
+
     try {
       result = await this.socket.sendMessage(targetJid, { text }, sendOptions);
     } catch (primaryErr: any) {
